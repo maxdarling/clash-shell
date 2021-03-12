@@ -6,6 +6,7 @@ add_compile_options(-Wall -Werror)
 
 set(EXECUTOR_TEST_SRCS
     src/loguru/loguru.cpp
+    src/string_util.cpp
     src/Executor.cpp)
 
 set(EXECUTOR_TEST_HDRS
