@@ -8,7 +8,7 @@
 class Executor {
   public:
     Executor() {}
-    std::string eval(std::string input);
+    std::string run(std::string input);
 
   private:
     struct Command {
@@ -23,4 +23,5 @@ class Executor {
     std::unordered_map<std::string, std::string> var_bindings;
 
     void divide_into_commands(std::string input, std::vector<Command> &commands);
+    void eval_command(Command cmd);
 };
