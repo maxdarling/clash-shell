@@ -146,14 +146,14 @@ void Executor::eval_command(Command &cmd)
  * and command substitutions for a given CLASH command string.
  * 
  * The returned command is the result of processing these special syntax features
- * on the input command. The only special syntax feature present in the returned
- * command is the backslash, which escapes spaces/tabs that should not be treated
- * as word separators, "<"/">" characters that should not be treated as I/O
- * redirections, and other backslashes.
+ * on the input command. The only special syntax features present in the returned
+ * command are single quotes and backslashes, which escape spaces/tabs that 
+ * should not be treated as word separators, "<"/">" characters that should not 
+ * be treated as I/O redirections, single quotes, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
- * @return The processed CLASH command string, in which a backslash is an escape 
- * character.
+ * @return The processed CLASH command string, in which single quotations may
+ * be present and a backslash is an escape character.
  */
 string Executor::process_special_syntax(const string &cmd)
 {
@@ -171,14 +171,8 @@ string Executor::process_special_syntax(const string &cmd)
     for (int i = 0; i < cmd.length(); i++) {
         /* SINGLE QUOTATION ENVIRONMENT */
         if (single_quoted) {
-            /* word separation and redirection are handled later, so preserve
-             * their escaping */
-            if (cmd[i] == ' ' || cmd[i] == '\t' || 
-                cmd[i] == '<' || cmd[i] == '>' || cmd[i] == '\\') {
-                processed_cmd += '\\';
-            }
+            processed_cmd += cmd[i];
             if (cmd[i] == '\'') single_quoted = false;
-            else processed_cmd += cmd[i];
             continue;
         }
 
@@ -256,13 +250,16 @@ string Executor::process_special_syntax(const string &cmd)
                     processed_cmd += '"';
                     backslashed = false;
                 }
-                else double_quoted = !double_quoted;
+                else {
+                    /* transform double quote environments into single quotes */
+                    processed_cmd += '\'';
+                    double_quoted = !double_quoted;
+                }
                 continue;
             case '\'':
-                if (backslashed || double_quoted) {
-                    processed_cmd += '\'';
-                    backslashed = false;
-                }
+                if (double_quoted) processed_cmd += '\\';
+                processed_cmd += '\'';
+                if (backslashed || double_quoted) backslashed = false;
                 /* begin single quotation environment */
                 else single_quoted = true;
                 continue;
@@ -295,7 +292,7 @@ string Executor::process_special_syntax(const string &cmd)
             case '\t':
             case '<':
             case '>':
-                if (backslashed || double_quoted) processed_cmd += '\\';
+                if (backslashed && !double_quoted) processed_cmd += '\\';
             default:
                 backslashed = false;
                 processed_cmd += cmd[i];
@@ -324,17 +321,18 @@ string Executor::process_special_syntax(const string &cmd)
 }
 
 /**
- * Divide a CLASH command, which contains only the backslash as an escape 
- * character, into words.
+ * Divide a CLASH command, which contains only single quotations and the 
+ * backslash as an escape character, into words.
  * 
- * Single quotes, double quotes, variable substitutions, and command 
- * substitutions should be processed before this method. The only special 
- * character considered here is the backslash, which is used to escape space
- * characters (so that they do not delimit the current word), I/O redirections, 
- * and other backslashes.
+ * Double quotes, variable substitutions, and command substitutions should be
+ * processed before this method. The only special characters considered here are
+ * single quotations and the backslash, which is used to escape space characters 
+ * (so that they do not delimit the current word), I/O redirections, single 
+ * quotes, and other backslashes.
  * 
- * @param cmd A CLASH command which only contains backslashes as special
- *  characters, i.e. one that has been modified by process_special_syntax
+ * @param cmd A CLASH command which only contains single quotes and backslashes 
+ * as special characters, i.e. one that has been modified by 
+ * process_special_syntax().
  * @param words An empty vector, which will be populated with the words.
  */
 void Executor::divide_into_words(string cmd, vector<string> &words)

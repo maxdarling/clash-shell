@@ -9,7 +9,6 @@ int main(int argc, char* argv[])
     LOG_F(INFO, "RUNNING EXECUTOR TESTS...");
 
     Executor e;
-    // e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`");
-    e.run("x=foo; echo file1 > zfoo.txt;   echo     foooo   ");
+    e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`");
     return 0;
 }
