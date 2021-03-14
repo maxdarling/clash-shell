@@ -1,5 +1,6 @@
 #include "Executor.h"
 #include "string_util.cpp"
+#include <iostream> // FOR DEBUGGING
 
 using std::string;
 using std::vector;
@@ -13,16 +14,13 @@ string Executor::run(string input)
 {
     vector<Command> commands;
     divide_into_commands(input, commands);
-    for (Command &c : commands) eval_command(c);
 
-
-    string output {};
-    for (const Command &c : commands) {
-        output += "[" + std::to_string(c.input_fd) + ", " 
-            + std::to_string(c.output_fd) + "] " + c.bash_str + "\n";
+    for (Command &c : commands) {
+        std::cerr << "[" + std::to_string(c.input_fd) + ", " + std::to_string(c.output_fd) + "] " + c.bash_str + "\n";
+        eval_command(c);
     }
 
-    return output;
+    return {};
 }
 
 /**
@@ -87,7 +85,7 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
                         throw std::runtime_error("Incomplete pipeline");
                     }
                     else continue;
-                    cmd = "";
+                    cmd.clear();
 
                     /* CASE: set up pipeline from previous command to this one */
                     if (should_pipe) {
@@ -129,91 +127,190 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
-
+    std::cerr << process_special_syntax(cmd.bash_str) << "\n";
 }
 
 /**
- * Process the backslashes, double quotes, variable substitutions, and command
- * substitutions in a given CLASH command string.
+ * Process backslashes, single quotes, double quotes, variable substitutions, 
+ * and command substitutions for a given CLASH command string.
  * 
  * The returned command is the result of processing these special syntax features
  * on the input command. The only special syntax feature present in the returned
- * command is single quotes, between which spaces do not delimit words.
+ * command is the backslash, which escapes spaces/tabs that should not be treated
+ * as word separators, "<"/">" characters that should not be treated as I/O
+ * redirections, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
- * @return The processed CLASH command string, which may contain single quotes.
+ * @return The processed CLASH command string, in which a backslash is an escape 
+ * character.
  */
 string Executor::process_special_syntax(const string &cmd)
 {
     string processed_cmd {};
 
-    /* FLAGS */
     bool backslashed = false;
     bool double_quoted = false;
     bool single_quoted = false;
-    bool var_sub = false;
+    bool var_sub = false, name_in_brackets = false;
     bool command_sub = false;
 
     string var_name {};
-    string sub_command {};
+    string subcommand {};
+
     for (int i = 0; i < cmd.length(); i++) {
-        if (!backslashed) {
-            /* set flag if a special character is encountered */
-            switch (cmd[i]) {
-                case '\\':
-                    backslashed = true;
-                    continue;
-                case '"':
-                    double_quoted = !double_quoted;
-                    continue;
-                case '\'':
-                    single_quoted = !single_quoted;
-                    continue;
-                case '$':
-                    var_sub = true;
-                    continue;
-                case '`':
-                    command_sub = !command_sub;
-                    continue;
+        /* SINGLE QUOTATION ENVIRONMENT */
+        if (single_quoted) {
+            /* word separation and redirection are handled later, so preserve
+             * their escaping */
+            if (cmd[i] == ' ' || cmd[i] == '\t' || 
+                cmd[i] == '<' || cmd[i] == '>') {
+                processed_cmd += '\\';
             }
-        } else backslashed = false;
-
-        if (var_sub) {
-            const string one_char_vars = "*#?";
-            if (var_name.empty() && one_char_vars.find(cmd[i]) != string::npos) {
-                // add cmd[i]
-            }
-            else if (!var_name.empty() && std::isdigit(var_name[0]) && std::isdigit(cmd[i])) {
-                // add cmd[i]
-            }
-            else if (std::isalnum(cmd[i])) {
-                // add cmd[i]
-            }
-
-            // if (std::isalnum(cmd[i]) || (var_name.empty() && (cmd[i] == '{' || cmd[i] == '')))
-
-            // if (!var_name.empty()) {
-            //     if (!std::isalnum(cmd[i]))
-            // }
-            // var_name += cmd[i];
+            if (cmd[i] == '\'') single_quoted = false;
+            else processed_cmd += cmd[i];
+            continue;
         }
 
-        processed_cmd += cmd[i];
+        /* ACCUMULATING VARIABLE NAME */
+        if (var_sub) {
+            static const string ONE_CHAR_VARS = "#*?";
+            /* set to true if we should skip switch on cmd[i] this iteration */
+            bool continue_after_sub = false;
+            /* CASE: process first character of variable name */
+            if (var_name.empty()) {
+                if (ONE_CHAR_VARS.find(cmd[i]) != string::npos) {
+                    var_name += cmd[i];
+                    var_sub = false;
+                    continue_after_sub = true;
+                }
+                else if (cmd[i] == '{') name_in_brackets = true;
+                else if (std::isalnum(cmd[i])) var_name += cmd[i];
+                else var_sub = false;
+            }
+            else if (name_in_brackets) {
+                if (cmd[i] == '}') {
+                    var_sub = false;
+                    continue_after_sub = true;
+                }
+                else var_name += cmd[i];
+            }
+            /* CASE: if a non-alphanumeric character is encountered, or if the 
+             * variable name is supposed to be a digit and a non-digit character
+             * is enounctered, end the variable name accumulation */
+            else if (!std::isalnum(cmd[i]) ||
+                    (std::isdigit(var_name[0]) && !std::isdigit(cmd[i]))) {
+                var_sub = false;
+            }
+            else var_name += cmd[i];
+
+            /* CASE: variable name accumulation ended in this iteration */
+            if (!var_sub) {
+                if (var_name.empty()) {
+                    // TODO(ali): better error checking
+                    throw std::invalid_argument("empty/invalid variable name");
+                }
+
+                // TODO(ali): always append var_bindings[var_name] to processed_cmd
+                // i.e. processed_cmd += var_bindings[var_name];
+                processed_cmd += "[binding of \"" + var_name + "\"]";
+
+                if (continue_after_sub) continue;
+            }
+            /* CASE: still accumulating variable name, continue to cmd[i+1] */
+            else continue;
+        }
+
+        /* ACCUMULATING SUBCOMMAND */
+        if (command_sub) {
+            if (cmd[i] == '`') command_sub = false;
+            else subcommand += cmd[i];
+
+            /* CASE: subcommand accumulation ended in this iteration */
+            if (!command_sub) {
+                // TODO(ali): execute subcommand, capturing its output, append output to processed_cmd
+                processed_cmd += "[output of \"" + subcommand + "\"]";
+            }
+
+            continue;  
+        }
+
+        /* SPECIAL SYNTAX */
+        switch (cmd[i]) {
+            case '\\':
+                if (backslashed) processed_cmd += '\\';
+                backslashed = !backslashed;
+                continue;
+            case '"':
+                if (backslashed) {
+                    processed_cmd += '"';
+                    backslashed = false;
+                }
+                else double_quoted = !double_quoted;
+                continue;
+            case '\'':
+                if (backslashed || double_quoted) {
+                    processed_cmd += '\'';
+                    backslashed = false;
+                }
+                /* begin single quotation environment */
+                else single_quoted = true;
+                continue;
+            case '$':
+                if (backslashed) {
+                    processed_cmd += '$';
+                    backslashed = false;
+                }
+                /* begin accumulating variable name */
+                else {
+                    var_sub = true;
+                    name_in_brackets = false;
+                    var_name.clear();
+                }
+                continue;
+            case '`':
+                if (backslashed) {
+                    processed_cmd += '`';
+                    backslashed = false;
+                }
+                /* begin accumulating subcommand */
+                else {
+                    command_sub = true;
+                    subcommand.clear();
+                }
+                continue;
+            /* word separation and redirection are handled later, so preserve
+             * their escaping */
+            case ' ':
+            case '\t':
+            case '<':
+            case '>':
+                if (backslashed || double_quoted) processed_cmd += '\\';
+            default:
+                backslashed = false;
+                processed_cmd += cmd[i];
+                break;
+        }
+    }
+
+    // TODO(ali): better error checking
+    if (name_in_brackets) {
+        throw std::invalid_argument("unterminated bracketed variable name");
     }
 
     return processed_cmd;
 }
 
 /**
- * Divide a CLASH command, which contains only single quotes as special 
- * characters, into words.
+ * Divide a CLASH command, which contains only the backslash as an escape 
+ * character, into words.
  * 
- * Backslashes, double quotes, variable substitutions, and command substitutions
- * in cmd should be processed before this method. The only special characters
- * considered here are spaces, which delimit words, and single quotes, which
- * neutralize the delimitting quality of spaces between them.
+ * Single quotes, double quotes, variable substitutions, and command 
+ * substitutions should be processed before this method. The only special 
+ * character considered here is the backslash, which is used to escape space
+ * characters (so that they do not delimit the current word), I/O redirections, 
+ * and other backslashes.
  * 
- * @param cmd A CLASH command which only contains single quotes as special
+ * @param cmd A CLASH command which only contains backslashes as special
  *  characters, i.e. one that has been modified by process_special_syntax
  * @param words An empty vector, which will be populated with the words.
  */

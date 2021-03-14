@@ -9,7 +9,7 @@ int main(int argc, char* argv[])
     LOG_F(INFO, "RUNNING EXECUTOR TESTS...");
 
     Executor e;
-    std::cout << e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`") << "\n";
+    e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`");
 
     return 0;
 }
