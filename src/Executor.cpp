@@ -15,10 +15,7 @@ string Executor::run(string input)
     vector<Command> commands;
     divide_into_commands(input, commands);
 
-    for (Command &c : commands) {
-        std::cerr << "[" + std::to_string(c.input_fd) + ", " + std::to_string(c.output_fd) + "] " + c.bash_str + "\n";
-        eval_command(c);
-    }
+    for (Command &c : commands) eval_command(c);
 
     return {};
 }
@@ -81,8 +78,9 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
             case '|':
             case ';':
             case '\n':
-                if (!backslashed && !single_quoted && !double_quoted && 
-                    !command_sub && !var_name) {
+                if (backslashed || single_quoted || double_quoted || 
+                    command_sub || var_name) break;
+                else {
                     /* add accumulated command to list and reset accumulator;
                      * empty commands are ignored (unless part of a pipeline) */
                     trim(cmd);
@@ -104,10 +102,11 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
                     }
 
                     should_pipe = input[i] == '|';
+                    continue;
                 }
-                continue;
         }
 
+        /* adding a normal character to the accumulating command */
         backslashed = false;
         cmd += input[i];
     }
@@ -137,8 +136,14 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
-    string processed_cmd = process_special_syntax(cmd.bash_str);
-    std::cerr << processed_cmd << "\n";
+    cmd.bash_str = process_special_syntax(cmd.bash_str);
+    vector<string> words;
+    divide_into_words(cmd, words);
+    std::cerr << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str + "\n";
+    for (const string &w : words) {
+        std::cerr << w << "\n";
+    }
+    std::cerr << "\n";
 }
 
 /**
@@ -217,7 +222,8 @@ string Executor::process_special_syntax(const string &cmd)
 
                 // TODO(ali): always append var_bindings[var_name] to processed_cmd
                 // i.e. processed_cmd += var_bindings[var_name];
-                processed_cmd += "[binding of \"" + var_name + "\"]";
+                std::replace(var_name.begin(), var_name.end(), ' ', '-');
+                processed_cmd += "[binding-of-\"" + var_name + "\"]";
 
                 if (!exceeded_name_scope) continue;
             }
@@ -233,7 +239,8 @@ string Executor::process_special_syntax(const string &cmd)
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
                 // TODO(ali): execute subcommand, capturing its output, append output to processed_cmd
-                processed_cmd += "[output of \"" + subcommand + "\"]";
+                std::replace(subcommand.begin(), subcommand.end(), ' ', '-');
+                processed_cmd += "[output-of-\"" + subcommand + "\"]";
             }
 
             continue;  
@@ -335,7 +342,107 @@ string Executor::process_special_syntax(const string &cmd)
  * process_special_syntax().
  * @param words An empty vector, which will be populated with the words.
  */
-void Executor::divide_into_words(string cmd, vector<string> &words)
+void Executor::divide_into_words(Command &cmd, vector<string> &words)
 {
+    cmd.bash_str += ' ';
+    const string &cmd_str = cmd.bash_str;
 
+    bool backslashed = false;
+    bool single_quoted = false;
+    bool i_redirect = false, o_redirect = false;
+
+    /* stores current accumulated word as we scan the command string */
+    string word {};
+
+    for (int i = 0; i < cmd_str.length(); i++) {
+        /* SINGLE QUOTATION ENVIRONMENT */
+        if (single_quoted) {
+            if (cmd_str[i] == '\'') {
+                if (i_redirect) {
+                    cmd.redirect_input(word);
+                    i_redirect = false;
+
+                }
+                else if (o_redirect) {
+                    cmd.redirect_output(word);
+                    o_redirect = false;
+                }
+                else words.push_back(word);
+                word.clear();
+                single_quoted = false;
+            }
+            else word += cmd_str[i];
+            continue;
+        }
+
+        switch (cmd_str[i])
+        {
+            /* SPECIAL SYNTAX */
+            case '\\':
+                if (backslashed) word += '\\';
+                backslashed = !backslashed;
+                continue;
+            /* WORD SEPARATORS */
+            case '\'':
+                if (!backslashed) single_quoted = true;
+            case '<':
+            case '>':
+            case ' ':
+            case '\t':
+                if (backslashed) {
+                    word += cmd_str[i];
+                    backslashed = false;
+                    continue;
+                }
+                /* a nonempty word has accumulated upon encountering a word 
+                 * separator; process this word */
+                if (!word.empty()) {
+                    if (i_redirect) {
+                        cmd.redirect_input(word);
+                        i_redirect = false;
+
+                    }
+                    else if (o_redirect) {
+                        cmd.redirect_output(word);
+                        o_redirect = false;
+                    }
+                    else words.push_back(word);
+                    word.clear();
+                }
+                /* CASE: two I/O redirection operators appear in a row */
+                else if ((i_redirect || o_redirect) && 
+                         (cmd_str[i] == '<' || cmd_str[i] == '>')) {
+                    // TODO(ali): better error checking
+                    throw std::runtime_error("missing redirection file name");
+                }
+
+                if (cmd_str[i] == '<') i_redirect = true;
+                if (cmd_str[i] == '>') o_redirect = true;
+
+                continue;
+            default:
+                backslashed = false;
+                word += cmd_str[i];
+                continue;
+        }
+    }
+
+    if (i_redirect) {
+        throw std::runtime_error("missing input file name");
+    }
+    if (o_redirect) {
+        throw std::runtime_error("missing output file name");
+    }
+}
+
+// TODO(ali): actually open files 'fname' in these methods
+
+void Executor::Command::redirect_input(const std::string &fname)
+{
+    input_fd = 69;
+}
+
+void Executor::Command::redirect_output(const std::string &fname)
+{
+    output_fd = 69;
 }

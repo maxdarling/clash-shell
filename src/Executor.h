@@ -14,6 +14,8 @@ class Executor {
     struct Command {
         Command(std::string cmd) 
           : bash_str(cmd), input_fd(STDIN_FILENO), output_fd(STDOUT_FILENO) {}
+        void redirect_input(const std::string &fname);
+        void redirect_output(const std::string &fname);
 
         std::string bash_str;
         int input_fd;
@@ -25,5 +27,5 @@ class Executor {
     void divide_into_commands(std::string input, std::vector<Command> &commands);
     void eval_command(Command &cmd);
     std::string process_special_syntax(const std::string &cmd);
-    void divide_into_words(std::string cmd, std::vector<std::string> &words);
+    void divide_into_words(Command &cmd, std::vector<std::string> &words);
 };
