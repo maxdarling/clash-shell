@@ -43,6 +43,7 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
     bool double_quoted = false;
     bool single_quoted = false;
     bool command_sub = false;
+    bool var_name = false;
     bool should_pipe = false;
 
     /* stores current accumulated command as we scan the input script */
@@ -50,32 +51,38 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
 
     for (int i = 0; i < input.length(); i++) {
         switch (input[i]) {
-            /* SPECIAL SYNTAX */
             case '\\':
-                if (!single_quoted) backslashed = !backslashed;
+                if (!single_quoted && !var_name) backslashed = !backslashed;
                 cmd += '\\';
                 continue;
             case '\'':
-                if (!backslashed && !double_quoted) {
+                if (!backslashed && !double_quoted && !var_name) {
                     single_quoted = !single_quoted;
                 }
                 break;
             case '"':
-                if (!backslashed && !single_quoted) {
+                if (!backslashed && !single_quoted && !var_name) {
                     double_quoted = !double_quoted;
                 }
                 break;
             case '`':
-                if (!backslashed && !single_quoted) {
+                if (!backslashed && !single_quoted && !var_name) {
                     command_sub = !command_sub;
                 }
+                break;
+            case '$':
+                if (!backslashed && !single_quoted && !var_name && 
+                    input[i+1] == '{') { var_name = true; }
+                break;
+            case '}':
+                var_name = false;
                 break;
             /* COMMAND SEPARATORS */
             case '|':
             case ';':
             case '\n':
                 if (!backslashed && !single_quoted && !double_quoted && 
-                    !command_sub) {
+                    !command_sub && !var_name) {
                     /* add accumulated command to list and reset accumulator;
                      * empty commands are ignored (unless part of a pipeline) */
                     trim(cmd);
@@ -118,6 +125,9 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
     if (backslashed) {
         throw std::runtime_error("Backslash appears as last character of line");
     }
+    if (var_name) {
+        throw std::runtime_error("Unterminated variable name braces");
+    }
 }
 
 /**
@@ -127,7 +137,8 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
-    std::cerr << process_special_syntax(cmd.bash_str) << "\n";
+    string processed_cmd = process_special_syntax(cmd.bash_str);
+    std::cerr << processed_cmd << "\n";
 }
 
 /**
@@ -163,7 +174,7 @@ string Executor::process_special_syntax(const string &cmd)
             /* word separation and redirection are handled later, so preserve
              * their escaping */
             if (cmd[i] == ' ' || cmd[i] == '\t' || 
-                cmd[i] == '<' || cmd[i] == '>') {
+                cmd[i] == '<' || cmd[i] == '>' || cmd[i] == '\\') {
                 processed_cmd += '\\';
             }
             if (cmd[i] == '\'') single_quoted = false;
@@ -174,14 +185,13 @@ string Executor::process_special_syntax(const string &cmd)
         /* ACCUMULATING VARIABLE NAME */
         if (var_sub) {
             static const string ONE_CHAR_VARS = "#*?";
-            /* set to true if we should skip switch on cmd[i] this iteration */
-            bool continue_after_sub = false;
+            /* set to true if we should switch on cmd[i] this iteration */
+            bool exceeded_name_scope = false;
             /* CASE: process first character of variable name */
             if (var_name.empty()) {
                 if (ONE_CHAR_VARS.find(cmd[i]) != string::npos) {
                     var_name += cmd[i];
                     var_sub = false;
-                    continue_after_sub = true;
                 }
                 else if (cmd[i] == '{') name_in_brackets = true;
                 else if (std::isalnum(cmd[i])) var_name += cmd[i];
@@ -189,8 +199,8 @@ string Executor::process_special_syntax(const string &cmd)
             }
             else if (name_in_brackets) {
                 if (cmd[i] == '}') {
+                    name_in_brackets = false;
                     var_sub = false;
-                    continue_after_sub = true;
                 }
                 else var_name += cmd[i];
             }
@@ -200,11 +210,12 @@ string Executor::process_special_syntax(const string &cmd)
             else if (!std::isalnum(cmd[i]) ||
                     (std::isdigit(var_name[0]) && !std::isdigit(cmd[i]))) {
                 var_sub = false;
+                exceeded_name_scope = true;
             }
             else var_name += cmd[i];
 
-            /* CASE: variable name accumulation ended in this iteration */
-            if (!var_sub) {
+            /* CASE: variable name accumulation ends in this iteration */
+            if (!var_sub || i == cmd.length() - 1) {
                 if (var_name.empty()) {
                     // TODO(ali): better error checking
                     throw std::invalid_argument("empty/invalid variable name");
@@ -214,7 +225,7 @@ string Executor::process_special_syntax(const string &cmd)
                 // i.e. processed_cmd += var_bindings[var_name];
                 processed_cmd += "[binding of \"" + var_name + "\"]";
 
-                if (continue_after_sub) continue;
+                if (!exceeded_name_scope) continue;
             }
             /* CASE: still accumulating variable name, continue to cmd[i+1] */
             else continue;
