@@ -10,14 +10,12 @@ using std::vector;
  * 
  * @param input The CLASH script to be executed.
  */
-string Executor::run(string input)
+void Executor::run(string input)
 {
     vector<Command> commands;
     divide_into_commands(input, commands);
 
     for (Command &c : commands) eval_command(c);
-
-    return {};
 }
 
 /**

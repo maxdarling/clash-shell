@@ -8,7 +8,7 @@
 class Executor {
   public:
     Executor() {}
-    std::string run(std::string input);
+    void run(std::string input);
 
   private:
     struct Command {
