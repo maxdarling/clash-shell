@@ -28,14 +28,12 @@ string Executor::run(string input)
  * 
  * @param input A string containing clash script.
  * @param commands An empty vector, which will be populated with the commands.
- * 
- * @throws std::runtime_error If input contains unterminated command substitution
- * @throws std::runtime_error If input contains pipeline without both ends
  */
 void Executor::divide_into_commands(string input, vector<Command> &commands)
 {
     input += ';'; /* enforce input terminated by command separator */
 
+    /* PARSING STATE FLAGS */
     bool backslashed = false;
     bool double_quoted = false;
     bool single_quoted = false;
@@ -151,12 +149,13 @@ void Executor::eval_command(Command &cmd)
  * and command substitutions for a given CLASH command string.
  * 
  * The returned command is the result of processing these special syntax features
- * on the input command. The only special syntax features present in the returned
+ * on the input command. The two special syntax features present in the returned
  * command are single quotes and backslashes, which escape spaces/tabs that 
  * should not be treated as word separators, "<"/">" characters that should not 
  * be treated as I/O redirections, single quotes, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
+ * 
  * @return The processed CLASH command string, in which single quotations may
  * be present and a backslash is an escape character.
  */
@@ -164,6 +163,7 @@ string Executor::process_special_syntax(const string &cmd)
 {
     string processed_cmd {};
 
+    /* PARSING STATE FLAGS */
     bool backslashed = false;
     bool double_quoted = false;
     bool single_quoted = false;
@@ -334,8 +334,8 @@ string Executor::process_special_syntax(const string &cmd)
  * Double quotes, variable substitutions, and command substitutions should be
  * processed before this method. The only special characters considered here are
  * single quotations and the backslash, which is used to escape space characters 
- * (so that they do not delimit the current word), I/O redirections, single 
- * quotes, and other backslashes.
+ * (so that they do not delimit the current word), I/O redirection operators, 
+ * single quotes, and other backslashes.
  * 
  * @param cmd A CLASH command which only contains single quotes and backslashes 
  * as special characters, i.e. one that has been modified by 
@@ -347,6 +347,7 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
     cmd.bash_str += ' ';
     const string &cmd_str = cmd.bash_str;
 
+    /* PARSING STATE FLAGS */
     bool backslashed = false;
     bool single_quoted = false;
     bool i_redirect = false, o_redirect = false;
@@ -427,6 +428,7 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
         }
     }
 
+    // TODO(ali): better error checking
     if (i_redirect) {
         throw std::runtime_error("missing input file name");
     }
@@ -437,11 +439,24 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
 
 // TODO(ali): actually open files 'fname' in these methods
 
+/**
+ * Open a file and redirect the input of the command to its file descriptor.
+ * 
+ * @param fname Name of file to be opened.
+ * 
+ * @throws error If file does not exist
+ */
 void Executor::Command::redirect_input(const std::string &fname)
 {
     input_fd = 69;
 }
 
+/**
+ * Open a file and redirect the output of the command to its file descriptor.
+ * 
+ * @param fname Name of file to be opened. If it exists, the command output will
+ * be appended to the file. If it does not exist, the file will be created.
+ */
 void Executor::Command::redirect_output(const std::string &fname)
 {
     output_fd = 69;

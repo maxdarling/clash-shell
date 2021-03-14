@@ -16,6 +16,7 @@ class Executor {
           : bash_str(cmd), input_fd(STDIN_FILENO), output_fd(STDOUT_FILENO) {}
         void redirect_input(const std::string &fname);
         void redirect_output(const std::string &fname);
+        // TODO(ali): destructor that closes files?
 
         std::string bash_str;
         int input_fd;
