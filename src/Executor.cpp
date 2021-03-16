@@ -1,9 +1,12 @@
 #include "Executor.h"
 #include "string_util.cpp"
+#include <cstdio>
 #include <iostream> // FOR DEBUGGING
+#include <unistd.h>
 
 using std::string;
 using std::vector;
+using std::cout, std::cerr, std::endl;
 
 /**
  * Run a CLASH script.
@@ -132,14 +135,15 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
+    // todo: implement the real version of this func. 
     cmd.bash_str = process_special_syntax(cmd.bash_str);
     vector<string> words;
     divide_into_words(cmd, words);
-    std::cerr << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str + "\n";
+    cout << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str << endl;
     for (const string &w : words) {
-        std::cerr << w << "\n";
+        cout << w << endl; 
     }
-    std::cerr << "\n";
+    cout << endl;
 }
 
 /**
@@ -237,8 +241,29 @@ string Executor::process_special_syntax(const string &cmd)
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
                 // TODO(ali): execute subcommand, capturing its output, append output to processed_cmd
-                std::replace(subcommand.begin(), subcommand.end(), ' ', '-');
-                processed_cmd += "[output-of-\"" + subcommand + "\"]";
+                // std::replace(subcommand.begin(), subcommand.end(), ' ', '-');
+                // processed_cmd += "[output-of-\"" + subcommand + "\"]";
+
+                /* Max: real command sub process */
+                // 1: temporarily redirect stdout to a pipe
+                int stdout_copy = dup(STDOUT_FILENO);
+                int fds[2];
+                pipe(fds);
+                dup2(fds[1], STDOUT_FILENO);
+                close(fds[1]);
+                // 2: execute the subcommand
+                Executor::run(subcommand);
+                // 3: read captured output
+                //cerr << "executor finished running subcommand" << endl;
+                char buf[512];
+                int bytes_read = read(fds[0], buf, sizeof(buf));
+                string subcommand_output(buf, bytes_read);
+                // 4: restore stdout
+                dup2(stdout_copy, STDOUT_FILENO);
+                close(stdout_copy);
+                // 5: add subcommand output to overall output
+                processed_cmd += subcommand_output;
+                //cerr << "finished command sub" << endl;
             }
 
             continue;  
