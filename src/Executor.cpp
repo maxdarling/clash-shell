@@ -3,10 +3,15 @@
 #include <cstdio>
 #include <iostream> // FOR DEBUGGING
 #include <unistd.h>
+#include <filesystem>
 
+namespace fs = std::filesystem;
 using std::string;
 using std::vector;
 using std::cout, std::cerr, std::endl;
+
+
+bool is_properly_formatted_var(const string& input);
 
 /**
  * Run a CLASH script.
@@ -139,6 +144,43 @@ void Executor::eval_command(Command &cmd)
     cmd.bash_str = process_special_syntax(cmd.bash_str);
     vector<string> words;
     divide_into_words(cmd, words);
+    assert(words.size() > 0);
+
+    // case #1: variable assignment
+    if (words.size() == 1 && is_properly_formatted_var(words[0])) {
+        int eq_idx = words[0].find('=');
+        string var = words[0].substr(0, eq_idx);
+        string val = words[0].substr(eq_idx + 1); 
+        var_bindings[var] = val; 
+        LOG_F(INFO, "performed variable binding for %s : %s", var.c_str(), val.c_str());
+    } 
+    // case #2: builtin commands
+    else if (words[0] == "cd") {
+        cerr << "current path before cd: " << fs::current_path() << endl;
+        try {
+            fs::current_path(words[1]);
+        }
+        catch (fs::filesystem_error& fse) {
+            cerr << fse.what() << endl;
+        }
+        cerr << "current path after cd: " << fs::current_path() << endl;
+    }
+    else if (words[0] == "exit") {
+    
+    }
+    else if (words[0] == "export") {
+
+    }
+    else if (words[0] == "unset") {
+
+    }
+    // case #3: executable
+    else {
+        // todo: implement PATH caching
+
+    }
+
+
     cout << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str << endl;
     for (const string &w : words) {
         cout << w << endl; 
@@ -484,3 +526,23 @@ void Executor::Command::redirect_output(const std::string &fname)
 {
     output_fd = 69;
 }
+
+/**
+ * Checks if the input string conforms to valid variable formatting. 
+ * Rules:
+ *  1. initial character is a letter followed by any number of letters or digits
+ *  2. followed by a '='
+ *  3. the rest is the variable's value, and has no format requirements
+ */
+ bool is_properly_formatted_var(const string& input) {
+     if (input.size() < 2) return false;
+
+     if (isalpha(input[0]) == 0) return false;
+
+    int eq_idx = input.find('=');
+    if (eq_idx == string::npos) return false;
+
+    auto last = input.begin() + eq_idx;
+    return last == find_if_not(input.begin() + 1, last, 
+                               [] (unsigned char c) { return std::isalnum(c); });
+ } 

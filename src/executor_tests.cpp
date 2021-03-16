@@ -11,6 +11,8 @@ int main(int argc, char* argv[])
     Executor e;
     // e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`");
     //e.run("x=\\;; words.py \"a$x b; c|d\"");
-    e.run("echo `coke`");
+    //e.run("echo `coke`");
+    //e.run("x=abc; $x");
+    e.run("cd /bin");
     return 0;
 }
