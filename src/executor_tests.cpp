@@ -13,6 +13,8 @@ int main(int argc, char* argv[])
     //e.run("x=\\;; words.py \"a$x b; c|d\"");
     //e.run("echo `coke`");
     //e.run("x=abc; $x");
-    e.run("cd /bin");
+    //e.run("cd /bin");
+    //e.run("exit dog");
+    //e.run("exit");
     return 0;
 }

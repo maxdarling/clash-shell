@@ -1,6 +1,7 @@
 #include "Executor.h"
 #include "string_util.cpp"
 #include <cstdio>
+#include <exception>
 #include <iostream> // FOR DEBUGGING
 #include <unistd.h>
 #include <filesystem>
@@ -156,23 +157,48 @@ void Executor::eval_command(Command &cmd)
     } 
     // case #2: builtin commands
     else if (words[0] == "cd") {
-        cerr << "current path before cd: " << fs::current_path() << endl;
         try {
             fs::current_path(words[1]);
         }
         catch (fs::filesystem_error& fse) {
             cerr << fse.what() << endl;
         }
-        cerr << "current path after cd: " << fs::current_path() << endl;
+        LOG_F(INFO, "switched directory to: %s", string(fs::current_path()).c_str());
     }
     else if (words[0] == "exit") {
-    
+        int status_code = 0;
+        if (words.size() > 1) {
+            try {
+                status_code = std::stoi(words[1]); 
+            }
+            catch (std::exception& e){
+                cerr << e.what() << endl;
+            }
+        }
+        exit(status_code);
     }
     else if (words[0] == "export") {
-
+        // export each existing var as an environment variable
+        for (int i = 1; i < words.size(); ++i) {
+            if (var_bindings.count(words[i])) {
+                int status = setenv(words[i].c_str(), var_bindings[words[i]].c_str(), 1);
+                if (status == -1) {
+                    LOG_F(INFO, "%s", strerror(errno));
+                }
+            }
+        }
     }
     else if (words[0] == "unset") {
-
+        // delete each existing var (both in environment and bindings map)
+        for (int i = 1; i < words.size(); ++i) {
+            if (var_bindings.count(words[i])) {
+                int status = unsetenv(words[i].c_str());
+                if (status == -1) {
+                    LOG_F(INFO, "%s", strerror(errno));
+                }
+                var_bindings.erase(words[i]);
+            }
+        }
     }
     // case #3: executable
     else {
