@@ -640,8 +640,8 @@ void Executor::Command::redirect_output(const std::string &fname)
  std::unordered_set<std::string> extract_paths_from_PATH() {
     char *path_ptr = getenv("PATH");
     string PATH = path_ptr ? string(path_ptr) : kPATH_default;
-    LOG_F(INFO, "PATH variable was %s", (path_ptr ? "found" : "not found"));
-    LOG_F(INFO, "PATH: %s", PATH.c_str());
+    LOG_F(INFO, "existing PATH variable was %s", (path_ptr ? "found" : "not found"));
+    //LOG_F(INFO, "PATH: %s", PATH.c_str());
     int start_idx = 0;
 
     std::unordered_set<std::string> result;
