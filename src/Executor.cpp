@@ -1,8 +1,10 @@
 #include "Executor.h"
 #include "string_util.cpp"
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <iostream> // FOR DEBUGGING
+#include <stdexcept>
 #include <unistd.h>
 #include <filesystem>
 
@@ -11,8 +13,21 @@ using std::string;
 using std::vector;
 using std::cout, std::cerr, std::endl;
 
-
 bool is_properly_formatted_var(const string& input);
+std::unordered_set<std::string> extract_paths_from_PATH();
+
+const static string kPATH_default = 
+    "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin";
+
+
+/** 
+ * Notes: 
+ * 
+ * - for whatever reason, 'pipe2' is not recognized on my (Max's) machine. 
+ *   I really want to use this for 'O_CLOEXEC', but can't. For now, I'll just
+ *   pollute the fd space, or whatever the consequence is ( .)_( .)  
+ */
+
 
 /**
  * Run a CLASH script.
@@ -152,16 +167,19 @@ void Executor::eval_command(Command &cmd)
         int eq_idx = words[0].find('=');
         string var = words[0].substr(0, eq_idx);
         string val = words[0].substr(eq_idx + 1); 
-        var_bindings[var] = val; 
+        _var_bindings[var] = val; 
         LOG_F(INFO, "performed variable binding for %s : %s", var.c_str(), val.c_str());
     } 
     // case #2: builtin commands
     else if (words[0] == "cd") {
+        if (words.size() == 1) {
+            throw std::runtime_error("syntax error: no path argument to 'cd'");
+        }
         try {
             fs::current_path(words[1]);
         }
         catch (fs::filesystem_error& fse) {
-            cerr << fse.what() << endl;
+            LOG_F(INFO, "%s", fse.what());
         }
         LOG_F(INFO, "switched directory to: %s", string(fs::current_path()).c_str());
     }
@@ -172,7 +190,7 @@ void Executor::eval_command(Command &cmd)
                 status_code = std::stoi(words[1]); 
             }
             catch (std::exception& e){
-                cerr << e.what() << endl;
+                LOG_F(INFO, "%s", e.what());
             }
         }
         exit(status_code);
@@ -180,8 +198,8 @@ void Executor::eval_command(Command &cmd)
     else if (words[0] == "export") {
         // export each existing var as an environment variable
         for (int i = 1; i < words.size(); ++i) {
-            if (var_bindings.count(words[i])) {
-                int status = setenv(words[i].c_str(), var_bindings[words[i]].c_str(), 1);
+            if (_var_bindings.count(words[i])) {
+                int status = setenv(words[i].c_str(), _var_bindings[words[i]].c_str(), 1);
                 if (status == -1) {
                     LOG_F(INFO, "%s", strerror(errno));
                 }
@@ -191,27 +209,75 @@ void Executor::eval_command(Command &cmd)
     else if (words[0] == "unset") {
         // delete each existing var (both in environment and bindings map)
         for (int i = 1; i < words.size(); ++i) {
-            if (var_bindings.count(words[i])) {
+            if (_var_bindings.count(words[i])) {
                 int status = unsetenv(words[i].c_str());
                 if (status == -1) {
                     LOG_F(INFO, "%s", strerror(errno));
                 }
-                var_bindings.erase(words[i]);
+                _var_bindings.erase(words[i]);
             }
         }
     }
     // case #3: executable
     else {
-        // todo: implement PATH caching
+        string input_cmd = words[0];
+        string complete_cmd;
+        // case 1: path is specified explicitly
+        if (input_cmd[0] == '/') {
+            if (access(input_cmd.c_str(), X_OK) != 0) {
+                LOG_F(INFO, "%s", strerror(errno));
+                throw std::runtime_error("invalid executable path");
+            }
+            complete_cmd = input_cmd;
+        }
+        // case 2: implicit path -> search using PATH
+        else {
+            // check if the command is cached
+            if (_cached_command_paths.count(input_cmd)) { // todo: grow this map
+                complete_cmd = _cached_command_paths[input_cmd];
+            }
+            // manually check PATH variable
+            else {
+                std::unordered_set<std::string> base_paths = extract_paths_from_PATH();
+                for (const std::string& base_path : base_paths) {
+                    string attempt_path = base_path + "/" + input_cmd;
+                    if (access(attempt_path.c_str(), X_OK) == 0) {
+                        complete_cmd = attempt_path;
+                        LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
+                        break;
+                    }
+                }
+                // if we got here, we couldn't find a path to the executable. 
+                if (complete_cmd == "") {
+                    throw std::runtime_error("command not found: " + input_cmd);
+                }
+            }
+        }
 
+        /* execute command */
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            // setup i/o
+            dup2(cmd.input_fd, STDIN_FILENO);
+            dup2(cmd.output_fd, STDOUT_FILENO);
+            // prepare argv
+            vector<char *> argv (words.size() + 1);
+            argv[0] = &complete_cmd[0];
+            for (int i = 1; i < words.size(); ++i) {
+                argv[i] = &words[i][0];
+            }
+            argv.back() = nullptr;
+
+            //execve(argv[0], argv.data(), nullptr); // todo: environment vars?
+            execvp(argv[0], argv.data());
+        } 
+
+        // parent: wait for child
+        close(cmd.input_fd);
+        close(cmd.output_fd);
+        waitpid(pid, nullptr, 0); // todo: add options. todo: execute pipe cmds concurrently
     }
-
-
-    cout << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str << endl;
-    for (const string &w : words) {
-        cout << w << endl; 
-    }
-    cout << endl;
 }
 
 /**
@@ -290,8 +356,8 @@ string Executor::process_special_syntax(const string &cmd)
                     throw std::invalid_argument("empty/invalid variable name");
                 }
 
-                // TODO(ali): always append var_bindings[var_name] to processed_cmd
-                // i.e. processed_cmd += var_bindings[var_name];
+                // TODO(ali): always append _var_bindings[var_name] to processed_cmd
+                // i.e. processed_cmd += _var_bindings[var_name];
                 std::replace(var_name.begin(), var_name.end(), ' ', '-');
                 processed_cmd += "[binding-of-\"" + var_name + "\"]";
 
@@ -308,10 +374,6 @@ string Executor::process_special_syntax(const string &cmd)
 
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
-                // TODO(ali): execute subcommand, capturing its output, append output to processed_cmd
-                // std::replace(subcommand.begin(), subcommand.end(), ' ', '-');
-                // processed_cmd += "[output-of-\"" + subcommand + "\"]";
-
                 /* Max: real command sub process */
                 // 1: temporarily redirect stdout to a pipe
                 int stdout_copy = dup(STDOUT_FILENO);
@@ -320,18 +382,18 @@ string Executor::process_special_syntax(const string &cmd)
                 dup2(fds[1], STDOUT_FILENO);
                 close(fds[1]);
                 // 2: execute the subcommand
-                Executor::run(subcommand);
-                // 3: read captured output
-                //cerr << "executor finished running subcommand" << endl;
+                //Executor::run(subcommand);
+                Command cmd("ls");
+                eval_command(cmd);
+                // 3: read captured output and append it 
                 char buf[512];
                 int bytes_read = read(fds[0], buf, sizeof(buf));
-                string subcommand_output(buf, bytes_read);
+                string subcommand_output = string(buf, bytes_read);
+                cerr << "subcommand output: " << endl << subcommand_output << endl;
+                processed_cmd += subcommand_output;
                 // 4: restore stdout
                 dup2(stdout_copy, STDOUT_FILENO);
                 close(stdout_copy);
-                // 5: add subcommand output to overall output
-                processed_cmd += subcommand_output;
-                //cerr << "finished command sub" << endl;
             }
 
             continue;  
@@ -572,3 +634,22 @@ void Executor::Command::redirect_output(const std::string &fname)
     return last == find_if_not(input.begin() + 1, last, 
                                [] (unsigned char c) { return std::isalnum(c); });
  } 
+
+
+// todo: put in util file?
+ std::unordered_set<std::string> extract_paths_from_PATH() {
+    char *path_ptr = getenv("PATH");
+    string PATH = path_ptr ? string(path_ptr) : kPATH_default;
+    LOG_F(INFO, "PATH variable was %s", (path_ptr ? "found" : "not found"));
+    LOG_F(INFO, "PATH: %s", PATH.c_str());
+    int start_idx = 0;
+
+    std::unordered_set<std::string> result;
+    while(start_idx < PATH.length()) {
+        int delim_idx = PATH.find(':', start_idx);
+        result.insert(PATH.substr(start_idx, delim_idx - start_idx));
+        if (delim_idx == string::npos) break;
+        start_idx = delim_idx + 1;
+    }
+    return result;
+ }

@@ -1,6 +1,7 @@
 #include "loguru/loguru.hpp"
 #include <unistd.h> // for STDIN_FILENO, STDOUT_FILENO
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 
@@ -23,7 +24,8 @@ class Executor {
         int output_fd;
     };
 
-    std::unordered_map<std::string, std::string> var_bindings;
+    std::unordered_map<std::string, std::string> _var_bindings;
+    std::unordered_map<std::string, std::string> _cached_command_paths;
 
     void divide_into_commands(std::string input, std::vector<Command> &commands);
     void eval_command(Command &cmd);

@@ -16,5 +16,11 @@ int main(int argc, char* argv[])
     //e.run("cd /bin");
     //e.run("exit dog");
     //e.run("exit");
+    // e.run("ls");  // todo: 2 ls -> 2nd just exits..
+    // e.run("ls");
+    //e.run("ls -la | more"); // works!
+    //e.run("./words.py");
+    e.run("echo `ls`");
+    //e.run("echo pizza");
     return 0;
 }
