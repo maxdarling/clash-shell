@@ -40,30 +40,27 @@ void repl(std::istream& file, bool is_terminal) {
 
     // determine why we broke from loop
     if (file.bad()) {
-        std::cerr << "bad file" << std::endl;
+        std::cerr << "clash: bad file: " << strerror(errno) << std::endl;
     }
-    else if (file.eof()) {
-        std::cerr << "reached EOF" << std::endl;
-    }
-    else {
-        std::cerr << "unknown error" << std::endl;
+    else if (!file.eof()) {
+        std::cerr << "clash: unknown error: " << strerror(errno) << std::endl;
     }
 }
 
 void Clash::run(std::vector<std::string> args) {
     // case #1: input from stdin
     if (args.size() == 0) {
-        // check if terminal or not
         bool is_terminal = (isatty(STDIN_FILENO) == 1);
         repl(std::cin, is_terminal);
     }
     // case #2: input from file
     else if (args.size() == 1) {
         // open file
-        std::ifstream file(args[0]);
-        if (file.fail()) {
-            throw std::runtime_error("file not found: " + args[0]);
-        } 
+        std::ifstream file(args[1]);
+        if(file.fail()) {
+            std::cerr << "clash: " << strerror(errno) << std::endl;
+            return;
+        }
         repl(file, false);
     }
     // case #3: shell script
@@ -74,7 +71,7 @@ void Clash::run(std::vector<std::string> args) {
             executor.run(args[1]);
         }
         catch (std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "clash: " << e.what() << std::endl;
         }
     }
     else {
