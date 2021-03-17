@@ -273,9 +273,10 @@ void Executor::eval_command(Command &cmd)
             execvp(argv[0], argv.data());
         } 
 
+        // parent: close pipes (stdin/out aren't pipes, so don't close em)
+        if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
+        if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
         // parent: wait for child
-        close(cmd.input_fd);
-        close(cmd.output_fd);
         waitpid(pid, nullptr, 0); // todo: add options. todo: execute pipe cmds concurrently
     }
 }
