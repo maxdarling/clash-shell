@@ -384,6 +384,9 @@ string Executor::process_special_syntax(const string &cmd)
             if (!command_sub) {
                 // run the subcommand and insert its output 
                 string result = run_and_capture_output(subcommand);
+                // remove trailing newline
+                if (result.back() == '\n') result.pop_back();
+                // word break on newlines and tabs
                 std::replace(result.begin(), result.end(), '\n', ' ');
                 std::replace(result.begin(), result.end(), '\t', ' ');
                 processed_cmd += result;
