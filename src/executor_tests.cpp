@@ -12,31 +12,33 @@ int main(int argc, char* argv[])
 
     ExecutorTestHarness tests;
     /* 190 site spec tests */ 
-    // note: John says it's ok to add "./" prefix to words.py
     /*
     tests.add_test(
-        "x=abc; ./words.py $x \"$x\" '$x' \"\\$x\"", 
+        "x=abc; words.py $x \"$x\" '$x' \"\\$x\"", 
             "$1: abc\n$2: abc\n$3: $x\n$4: $x\n");
     tests.add_test(
         "x=foo; echo file1 > zfoo.txt\ncat < z$x.txt\n", 
         "file1\n");
     // todo: add rest
     tests.add_test(
-        "x=\\;; ./words.py \"a$x b; c|d\"", 
+        "x=\\;; words.py \"a$x b; c|d\"", 
         "$1: a; b; c|d\n");
     */
 
     /* custom tests */
-    tests.add_test("x=abc; $x", "abc"); // try no newline...
+    // tests.add_test("x=abc; $x", "abc"); // try no newline...
     
-    // 2 ls in a row
-    tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
-    tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
-    // empty words.py
-    tests.add_test("./words.py", "");
+    // // 2 ls in a row
+    // tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
+    // tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
+    // // empty words.py
+    // tests.add_test("words.py", "");
 
     // command sub:
-    tests.add_test("echo `echo dog`", "dog");
+    //tests.add_test("echo `echo dog`", "dog");
+    tests.add_test("words.py `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
+    //tests.add_test("echo `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
+    tests.add_test("words.py pizza", "pizza");
 
     tests.run_all_tests();
 }

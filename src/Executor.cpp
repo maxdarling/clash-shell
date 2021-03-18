@@ -379,7 +379,10 @@ string Executor::process_special_syntax(const string &cmd)
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
                 // run the subcommand and insert its output 
-                processed_cmd += run_and_capture_output(subcommand);
+                string result = run_and_capture_output(subcommand);
+                std::replace(result.begin(), result.end(), '\n', ' ');
+                std::replace(result.begin(), result.end(), '\t', ' ');
+                processed_cmd += result;
             }
 
             continue;  
@@ -662,6 +665,9 @@ std::string Executor::run_and_capture_output(std::string input) {
         if (delim_idx == string::npos) break;
         start_idx = delim_idx + 1;
     }
+
+    // special: add '.' to the PATH as well
+    result.insert(".");
 
     return result;
  }
