@@ -12,18 +12,16 @@ int main(int argc, char* argv[])
 
     ExecutorTestHarness tests;
     /* 190 site spec tests */ 
-    /*
     tests.add_test(
         "x=abc; words.py $x \"$x\" '$x' \"\\$x\"", 
             "$1: abc\n$2: abc\n$3: $x\n$4: $x\n");
     tests.add_test(
         "x=foo; echo file1 > zfoo.txt\ncat < z$x.txt\n", 
         "file1\n");
-    // todo: add rest
-    tests.add_test(
-        "x=\\;; words.py \"a$x b; c|d\"", 
-        "$1: a; b; c|d\n");
-    */
+    // // todo: add rest
+    // tests.add_test(
+    //     "x=\\;; words.py \"a$x b; c|d\"", 
+    //     "$1: a; b; c|d\n");
 
     /* custom tests */
     // tests.add_test("x=abc; $x", "abc"); // try no newline...
@@ -39,6 +37,8 @@ int main(int argc, char* argv[])
     tests.add_test("words.py `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
     //tests.add_test("echo `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
     tests.add_test("words.py pizza", "pizza");
+    tests.add_test("words.py", ""); // breaks: blocking on a read when there's no ouput
+    tests.add_test("echo pizza > trash_file; cat trash_file", "pizza");
 
     tests.run_all_tests();
 }

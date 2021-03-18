@@ -6,7 +6,11 @@
 #include <iostream> // FOR DEBUGGING
 #include <stdexcept>
 #include <unistd.h>
+#include <poll.h>
 #include <filesystem>
+// #include <sys/types.h>
+// #include <sys/stat.h>
+#include <fcntl.h>
 
 namespace fs = std::filesystem;
 using std::string;
@@ -361,9 +365,9 @@ string Executor::process_special_syntax(const string &cmd)
                 }
 
                 // TODO(ali): always append _var_bindings[var_name] to processed_cmd
-                // i.e. processed_cmd += _var_bindings[var_name];
-                std::replace(var_name.begin(), var_name.end(), ' ', '-');
-                processed_cmd += "[binding-of-\"" + var_name + "\"]";
+                processed_cmd += _var_bindings[var_name];
+                // std::replace(var_name.begin(), var_name.end(), ' ', '-');
+                // processed_cmd += "[binding-of-\"" + var_name + "\"]";
 
                 if (!exceeded_name_scope) continue;
             }
@@ -590,7 +594,11 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
  */
 void Executor::Command::redirect_input(const std::string &fname)
 {
-    input_fd = 69;
+    int fd = open(fname.c_str(), O_RDONLY, 0644);
+    if (fd == -1) {
+        throw std::runtime_error("clash: " + string(strerror(errno)));
+    }
+    input_fd = fd;
 }
 
 /**
@@ -601,7 +609,11 @@ void Executor::Command::redirect_input(const std::string &fname)
  */
 void Executor::Command::redirect_output(const std::string &fname)
 {
-    output_fd = 69;
+    int fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644); 
+    if (fd == -1) {
+        throw std::runtime_error("clash: " + string(strerror(errno)));
+    }
+    output_fd = fd;
 }
 
 
@@ -617,9 +629,14 @@ std::string Executor::run_and_capture_output(std::string input) {
     Executor::run(input);
 
     // 3: read captured output and append it 
-    char buf[512];
-    int bytes_read = read(fds[0], buf, sizeof(buf));
-    string result(buf, bytes_read);
+    string result;
+    struct pollfd pfd {fds[0], POLL_IN, 0};
+    // only attempt to read if there's data
+    if (poll(&pfd, 1, 0) > 0) {
+        char buf[512];
+        int bytes_read = read(fds[0], buf, sizeof(buf));
+        result = string(buf, bytes_read);
+    }
 
     // 4: restore stdout
     dup2(stdout_copy, STDOUT_FILENO);
