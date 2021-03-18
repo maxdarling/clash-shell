@@ -596,7 +596,7 @@ void Executor::Command::redirect_input(const std::string &fname)
 {
     int fd = open(fname.c_str(), O_RDONLY, 0644);
     if (fd == -1) {
-        throw std::runtime_error("clash: " + string(strerror(errno)));
+        throw std::runtime_error(strerror(errno));
     }
     input_fd = fd;
 }
@@ -611,7 +611,7 @@ void Executor::Command::redirect_output(const std::string &fname)
 {
     int fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644); 
     if (fd == -1) {
-        throw std::runtime_error("clash: " + string(strerror(errno)));
+        throw std::runtime_error(strerror(errno));
     }
     output_fd = fd;
 }
