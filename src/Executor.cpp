@@ -76,30 +76,28 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
             case '\n':
                 if (backslashed || single_quoted || double_quoted || 
                     command_sub || var_name) break;
-                else {
-                    /* add accumulated command to list and reset accumulator;
-                     * empty commands are ignored (unless part of a pipeline) */
-                    trim(cmd);
-                    if (!cmd.empty()) commands.emplace_back(cmd);
-                    else if (should_pipe) {
-                        // TODO(ali): better error checking here
-                        throw std::runtime_error("Incomplete pipeline");
-                    }
-                    else continue;
-                    cmd.clear();
-
-                    /* CASE: set up pipeline from previous command to this one */
-                    if (should_pipe) {
-                        int pipe_fds[2];
-                        pipe(pipe_fds);
-
-                        commands.at(commands.size() - 2).output_fd = pipe_fds[1];
-                        commands.at(commands.size() - 1).input_fd = pipe_fds[0];
-                    }
-
-                    should_pipe = input[i] == '|';
-                    continue;
+                /* add accumulated command to list and reset accumulator;
+                 * empty commands are ignored (unless part of a pipeline) */
+                trim(cmd);
+                if (!cmd.empty()) commands.emplace_back(cmd);
+                else if (should_pipe) {
+                    // TODO(ali): better error checking here
+                    throw std::runtime_error("Incomplete pipeline");
                 }
+                else continue;
+                cmd.clear();
+
+                /* CASE: set up pipeline from previous command to this one */
+                if (should_pipe) {
+                    int pipe_fds[2];
+                    pipe(pipe_fds);
+
+                    commands.at(commands.size() - 2).output_fd = pipe_fds[1];
+                    commands.at(commands.size() - 1).input_fd = pipe_fds[0];
+                }
+
+                should_pipe = input[i] == '|';
+                continue;
         }
 
         /* adding a normal character to the accumulating command */
@@ -150,7 +148,7 @@ void Executor::eval_command(Command &cmd)
  * on the input command. The two special syntax features present in the returned
  * command are single quotes and backslashes, which escape spaces/tabs that 
  * should not be treated as word separators, "<"/">" characters that should not 
- * be treated as I/O redirections, single quotes, and other backslashes.
+ * be treated as I/O redirection operators, single quotes, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
  * 
@@ -360,7 +358,6 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
                 if (i_redirect) {
                     cmd.redirect_input(word);
                     i_redirect = false;
-
                 }
                 else if (o_redirect) {
                     cmd.redirect_output(word);
