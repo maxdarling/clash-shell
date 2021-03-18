@@ -34,7 +34,7 @@ void repl(std::istream& file, bool is_terminal) {
             executor.run(line);
         }
         catch (std::exception& e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "clash: " << e.what() << std::endl;
         }
     }
 
