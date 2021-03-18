@@ -1,9 +1,37 @@
 #include "Executor.h"
 #include "string_util.cpp"
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <iostream> // FOR DEBUGGING
+#include <stdexcept>
+#include <unistd.h>
+#include <poll.h>
+#include <filesystem>
+// #include <sys/types.h>
+// #include <sys/stat.h>
+#include <fcntl.h>
 
+namespace fs = std::filesystem;
 using std::string;
 using std::vector;
+using std::cout, std::cerr, std::endl;
+
+bool is_properly_formatted_var(const string& input);
+std::unordered_set<std::string> extract_paths_from_PATH();
+
+const static string kPATH_default = 
+    "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin";
+
+
+/** 
+ * Notes: 
+ * 
+ * - for whatever reason, 'pipe2' is not recognized on my (Max's) machine. 
+ *   I really want to use this for 'O_CLOEXEC', but can't. For now, I'll just
+ *   pollute the fd space, or whatever the consequence is ( .)_( .)  
+ */
+
 
 /**
  * Run a CLASH script.
@@ -130,14 +158,132 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
+    // todo: implement the real version of this func. 
     cmd.bash_str = process_special_syntax(cmd.bash_str);
     vector<string> words;
     divide_into_words(cmd, words);
-    std::cerr << "[" + std::to_string(cmd.input_fd) + ", " + std::to_string(cmd.output_fd) + "] " + cmd.bash_str + "\n";
-    for (const string &w : words) {
-        std::cerr << w << "\n";
+    assert(words.size() > 0);
+
+    // case #1: variable assignment
+    if (words.size() == 1 && is_properly_formatted_var(words[0])) {
+        int eq_idx = words[0].find('=');
+        string var = words[0].substr(0, eq_idx);
+        string val = words[0].substr(eq_idx + 1); 
+        _var_bindings[var] = val; 
+        LOG_F(INFO, "performed variable binding for %s : %s", var.c_str(), val.c_str());
+    } 
+    // case #2: builtin commands
+    else if (words[0] == "cd") {
+        if (words.size() == 1) {
+            throw std::runtime_error("syntax error: no path argument to 'cd'");
+        }
+        try {
+            fs::current_path(words[1]);
+        }
+        catch (fs::filesystem_error& fse) {
+            LOG_F(INFO, "%s", fse.what());
+        }
+        LOG_F(INFO, "switched directory to: %s", string(fs::current_path()).c_str());
     }
-    std::cerr << "\n";
+    else if (words[0] == "exit") {
+        int status_code = 0;
+        if (words.size() > 1) {
+            try {
+                status_code = std::stoi(words[1]); 
+            }
+            catch (std::exception& e){
+                LOG_F(INFO, "%s", e.what());
+            }
+        }
+        exit(status_code);
+    }
+    else if (words[0] == "export") {
+        // export each existing var as an environment variable
+        for (int i = 1; i < words.size(); ++i) {
+            if (_var_bindings.count(words[i])) {
+                int status = setenv(words[i].c_str(), _var_bindings[words[i]].c_str(), 1);
+                if (status == -1) {
+                    LOG_F(INFO, "%s", strerror(errno));
+                }
+            }
+        }
+    }
+    else if (words[0] == "unset") {
+        // delete each existing var (both in environment and bindings map)
+        for (int i = 1; i < words.size(); ++i) {
+            if (_var_bindings.count(words[i])) {
+                int status = unsetenv(words[i].c_str());
+                if (status == -1) {
+                    LOG_F(INFO, "%s", strerror(errno));
+                }
+                _var_bindings.erase(words[i]);
+            }
+        }
+    }
+    // case #3: executable
+    else {
+        string input_cmd = words[0];
+        string complete_cmd;
+        // case 1: path is specified explicitly
+        if (input_cmd[0] == '/') {
+            if (access(input_cmd.c_str(), X_OK) != 0) {
+                LOG_F(INFO, "%s", strerror(errno));
+                throw std::runtime_error("invalid executable path");
+            }
+            complete_cmd = input_cmd;
+        }
+        // case 2: implicit path -> search using PATH
+        else {
+            // check if the command is cached
+            if (_cached_command_paths.count(input_cmd)) { // todo: grow this map
+                complete_cmd = _cached_command_paths[input_cmd];
+            }
+            // manually check PATH variable
+            else {
+                std::unordered_set<std::string> base_paths = extract_paths_from_PATH();
+                for (const std::string& base_path : base_paths) {
+                    string attempt_path = base_path + "/" + input_cmd;
+                    if (access(attempt_path.c_str(), X_OK) == 0) {
+                        complete_cmd = attempt_path;
+                        LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
+                        break;
+                    }
+                }
+                // if we got here, we couldn't find a path to the executable. 
+                if (complete_cmd == "") {
+                    throw std::runtime_error("command not found: " + input_cmd);
+                }
+            }
+        }
+
+        /* execute command */
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            // setup i/o
+            dup2(cmd.input_fd, STDIN_FILENO);
+            dup2(cmd.output_fd, STDOUT_FILENO);
+            // prepare argv
+            vector<char *> argv (words.size() + 1);
+            argv[0] = &complete_cmd[0];
+            for (int i = 1; i < words.size(); ++i) {
+                argv[i] = &words[i][0];
+            }
+            argv.back() = nullptr;
+
+            //execve(argv[0], argv.data(), nullptr); // todo: environment vars?
+            execvp(argv[0], argv.data());
+        } 
+
+        // parent: close pipes (stdin/out aren't pipes, so don't close em)
+        // todo: this might not work for pipes. if we spwan a child after this, that child will inherit the 
+        // closed fds, perhaps? Safer at least to close them at the end once we've launched + waited for all 
+        // processes. 
+        if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
+        if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
+        // parent: wait for child
+        waitpid(pid, nullptr, 0); // todo: add options. todo: execute pipe cmds concurrently
+    }
 }
 
 /**
@@ -216,10 +362,10 @@ string Executor::process_special_syntax(const string &cmd)
                     throw std::invalid_argument("empty/invalid variable name");
                 }
 
-                // TODO(ali): always append var_bindings[var_name] to processed_cmd
-                // i.e. processed_cmd += var_bindings[var_name];
-                std::replace(var_name.begin(), var_name.end(), ' ', '-');
-                processed_cmd += "[binding-of-\"" + var_name + "\"]";
+                // TODO(ali): always append _var_bindings[var_name] to processed_cmd
+                processed_cmd += _var_bindings[var_name];
+                // std::replace(var_name.begin(), var_name.end(), ' ', '-');
+                // processed_cmd += "[binding-of-\"" + var_name + "\"]";
 
                 if (!exceeded_name_scope) continue;
             }
@@ -234,9 +380,14 @@ string Executor::process_special_syntax(const string &cmd)
 
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
-                // TODO(ali): execute subcommand, capturing its output, append output to processed_cmd
-                std::replace(subcommand.begin(), subcommand.end(), ' ', '-');
-                processed_cmd += "[output-of-\"" + subcommand + "\"]";
+                // run the subcommand and insert its output 
+                string result = run_and_capture_output(subcommand);
+                // remove trailing newline
+                if (result.back() == '\n') result.pop_back();
+                // word break on newlines and tabs
+                std::replace(result.begin(), result.end(), '\n', ' ');
+                std::replace(result.begin(), result.end(), '\t', ' ');
+                processed_cmd += result;
             }
 
             continue;  
@@ -443,7 +594,11 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
  */
 void Executor::Command::redirect_input(const std::string &fname)
 {
-    input_fd = 69;
+    int fd = open(fname.c_str(), O_RDONLY, 0644);
+    if (fd == -1) {
+        throw std::runtime_error("clash: " + string(strerror(errno)));
+    }
+    input_fd = fd;
 }
 
 /**
@@ -454,5 +609,92 @@ void Executor::Command::redirect_input(const std::string &fname)
  */
 void Executor::Command::redirect_output(const std::string &fname)
 {
-    output_fd = 69;
+    int fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644); 
+    if (fd == -1) {
+        throw std::runtime_error("clash: " + string(strerror(errno)));
+    }
+    output_fd = fd;
 }
+
+
+std::string Executor::run_and_capture_output(std::string input) {
+    // 1: temporarily redirect stdout to a pipe
+    int stdout_copy = dup(STDOUT_FILENO);
+    int fds[2];
+    pipe(fds);
+    dup2(fds[1], STDOUT_FILENO);
+    close(fds[1]);
+
+    // 2: execute the command 
+    try {
+        Executor::run(input);
+    }
+    catch (...) {
+        // restore stdout
+        dup2(stdout_copy, STDOUT_FILENO);
+        close(stdout_copy);
+        // we should throw the thrown exception here b/c this function should 
+        // exactly mimic 'run', only differing in fd setup + teardown. 
+        throw;
+    }
+
+    // 3: read captured output and append it 
+    string result;
+    struct pollfd pfd {fds[0], POLL_IN, 0};
+    // only attempt to read if there's data
+    if (poll(&pfd, 1, 0) > 0) {
+        char buf[512];
+        int bytes_read = read(fds[0], buf, sizeof(buf));
+        result = string(buf, bytes_read);
+    }
+
+    // 4: restore stdout
+    dup2(stdout_copy, STDOUT_FILENO);
+    close(stdout_copy);
+
+    return result;
+}
+
+
+/**
+ * Checks if the input string conforms to valid variable formatting. 
+ * Rules:
+ *  1. initial character is a letter followed by any number of letters or digits
+ *  2. followed by a '='
+ *  3. the rest is the variable's value, and has no format requirements
+ */
+ bool is_properly_formatted_var(const string& input) {
+     if (input.size() < 2) return false;
+
+     if (isalpha(input[0]) == 0) return false;
+
+    int eq_idx = input.find('=');
+    if (eq_idx == string::npos) return false;
+
+    auto last = input.begin() + eq_idx;
+    return last == find_if_not(input.begin() + 1, last, 
+                               [] (unsigned char c) { return std::isalnum(c); });
+ } 
+
+
+// todo: put in util file?
+ std::unordered_set<std::string> extract_paths_from_PATH() {
+    char *path_ptr = getenv("PATH");
+    string PATH = path_ptr ? string(path_ptr) : kPATH_default;
+    LOG_F(INFO, "existing PATH variable was %s", (path_ptr ? "found" : "not found"));
+    //LOG_F(INFO, "PATH: %s", PATH.c_str());
+    int start_idx = 0;
+
+    std::unordered_set<std::string> result;
+    while(start_idx < PATH.length()) {
+        int delim_idx = PATH.find(':', start_idx);
+        result.insert(PATH.substr(start_idx, delim_idx - start_idx));
+        if (delim_idx == string::npos) break;
+        start_idx = delim_idx + 1;
+    }
+
+    // special: add '.' to the PATH as well
+    result.insert(".");
+
+    return result;
+ }
