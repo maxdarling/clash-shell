@@ -1,4 +1,4 @@
-#include "Executor.h"
+#include "ExecutorTestHarness.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
@@ -7,20 +7,36 @@ int main(int argc, char* argv[])
     loguru::add_file("clash.log", loguru::Truncate, loguru::Verbosity_MAX);
 
     LOG_F(INFO, "RUNNING EXECUTOR TESTS...");
+    loguru::g_stderr_verbosity = loguru::Verbosity_OFF; // don't write to stderr
 
-    Executor e;
-    // e.run("x=abc; words.py 1\"$x\"2'$x'3`echo foo`\necho>foo abc; cat foo\nwords.py \"<\"'>'\\< `echo \\<`");
-    //e.run("x=\\;; words.py \"a$x b; c|d\"");
-    //e.run("echo `coke`");
-    //e.run("x=abc; $x");
-    //e.run("cd /bin");
-    //e.run("exit dog");
-    //e.run("exit");
-    // e.run("ls");  // todo: 2 ls -> 2nd just exits..
-    // e.run("ls");
-    //e.run("ls -la | more"); // works!
-    //e.run("./words.py");
-    e.run("echo `ls`");
-    //e.run("echo pizza");
-    return 0;
+
+    ExecutorTestHarness tests;
+    /* 190 site spec tests */ 
+    // note: John says it's ok to add "./" prefix to words.py
+    /*
+    tests.add_test(
+        "x=abc; ./words.py $x \"$x\" '$x' \"\\$x\"", 
+            "$1: abc\n$2: abc\n$3: $x\n$4: $x\n");
+    tests.add_test(
+        "x=foo; echo file1 > zfoo.txt\ncat < z$x.txt\n", 
+        "file1\n");
+    // todo: add rest
+    tests.add_test(
+        "x=\\;; ./words.py \"a$x b; c|d\"", 
+        "$1: a; b; c|d\n");
+    */
+
+    /* custom tests */
+    tests.add_test("x=abc; $x", "abc"); // try no newline...
+    
+    // 2 ls in a row
+    tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
+    tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
+    // empty words.py
+    tests.add_test("./words.py", "");
+
+    // command sub:
+    tests.add_test("echo `echo dog`", "dog");
+
+    tests.run_all_tests();
 }

@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
+//#include "ExecutorTestHarness.h"
 
 
 class Executor {
@@ -31,4 +32,9 @@ class Executor {
     void eval_command(Command &cmd);
     std::string process_special_syntax(const std::string &cmd);
     void divide_into_words(Command &cmd, std::vector<std::string> &words);
+
+    // convenience:
+    std::string run_and_capture_output(std::string input);
+
+    friend class ExecutorTestHarness;
 };

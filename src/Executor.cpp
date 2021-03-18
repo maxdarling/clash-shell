@@ -274,6 +274,9 @@ void Executor::eval_command(Command &cmd)
         } 
 
         // parent: close pipes (stdin/out aren't pipes, so don't close em)
+        // todo: this might not work for pipes. if we spwan a child after this, that child will inherit the 
+        // closed fds, perhaps? Safer at least to close them at the end once we've launched + waited for all 
+        // processes. 
         if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
         if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
         // parent: wait for child
@@ -375,26 +378,8 @@ string Executor::process_special_syntax(const string &cmd)
 
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
-                /* Max: real command sub process */
-                // 1: temporarily redirect stdout to a pipe
-                int stdout_copy = dup(STDOUT_FILENO);
-                int fds[2];
-                pipe(fds);
-                dup2(fds[1], STDOUT_FILENO);
-                close(fds[1]);
-                // 2: execute the subcommand
-                //Executor::run(subcommand);
-                Command cmd("ls");
-                eval_command(cmd);
-                // 3: read captured output and append it 
-                char buf[512];
-                int bytes_read = read(fds[0], buf, sizeof(buf));
-                string subcommand_output = string(buf, bytes_read);
-                cerr << "subcommand output: " << endl << subcommand_output << endl;
-                processed_cmd += subcommand_output;
-                // 4: restore stdout
-                dup2(stdout_copy, STDOUT_FILENO);
-                close(stdout_copy);
+                // run the subcommand and insert its output 
+                processed_cmd += run_and_capture_output(subcommand);
             }
 
             continue;  
@@ -616,6 +601,31 @@ void Executor::Command::redirect_output(const std::string &fname)
     output_fd = 69;
 }
 
+
+std::string Executor::run_and_capture_output(std::string input) {
+    // 1: temporarily redirect stdout to a pipe
+    int stdout_copy = dup(STDOUT_FILENO);
+    int fds[2];
+    pipe(fds);
+    dup2(fds[1], STDOUT_FILENO);
+    close(fds[1]);
+
+    // 2: execute the command 
+    Executor::run(input);
+
+    // 3: read captured output and append it 
+    char buf[512];
+    int bytes_read = read(fds[0], buf, sizeof(buf));
+    string result(buf, bytes_read);
+
+    // 4: restore stdout
+    dup2(stdout_copy, STDOUT_FILENO);
+    close(stdout_copy);
+
+    return result;
+}
+
+
 /**
  * Checks if the input string conforms to valid variable formatting. 
  * Rules:
@@ -652,5 +662,6 @@ void Executor::Command::redirect_output(const std::string &fname)
         if (delim_idx == string::npos) break;
         start_idx = delim_idx + 1;
     }
+
     return result;
  }

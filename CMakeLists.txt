@@ -16,7 +16,8 @@ set(SRCS
 set(HDRS
     src/loguru/loguru.hpp
     src/Executor.h
-    src/Clash.h)
+    src/Clash.h
+    src/ExecutorTestHarness.h)
 
 add_executable(executor_tests src/executor_tests.cpp 
     ${SRCS} ${HDRS})
