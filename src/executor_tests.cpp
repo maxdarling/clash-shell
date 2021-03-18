@@ -18,7 +18,22 @@ int main(int argc, char* argv[])
     tests.add_test(
         "x=foo; echo file1 > zfoo.txt\ncat < z$x.txt\n", 
         "file1\n");
-    // // todo: add rest
+
+    tests.add_test(
+        "y='a\\nb'; words.py \\\"$y\\\"\n", 
+        "$1: \"a\nb\"\n"
+    );
+
+    tests.add_test(
+        "x='  a  b  '; words.py .$x.\n", 
+        "$1: .\n$2: a\n$3: b\n$4: .\n"
+    );
+    tests.add_test(
+        "x='  a  '; words.py $x$x\n", 
+        "$1: a\n"
+    );
+
+
     // tests.add_test(
     //     "x=\\;; words.py \"a$x b; c|d\"", 
     //     "$1: a; b; c|d\n");

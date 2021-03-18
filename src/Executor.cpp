@@ -626,7 +626,17 @@ std::string Executor::run_and_capture_output(std::string input) {
     close(fds[1]);
 
     // 2: execute the command 
-    Executor::run(input);
+    try {
+        Executor::run(input);
+    }
+    catch (...) {
+        // restore stdout
+        dup2(stdout_copy, STDOUT_FILENO);
+        close(stdout_copy);
+        // we should throw the thrown exception here b/c this function should 
+        // exactly mimic 'run', only differing in fd setup + teardown. 
+        throw;
+    }
 
     // 3: read captured output and append it 
     string result;
