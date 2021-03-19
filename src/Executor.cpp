@@ -112,30 +112,28 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
             case '\n':
                 if (backslashed || single_quoted || double_quoted || 
                     command_sub || var_name) break;
-                else {
-                    /* add accumulated command to list and reset accumulator;
-                     * empty commands are ignored (unless part of a pipeline) */
-                    trim(cmd);
-                    if (!cmd.empty()) commands.emplace_back(cmd);
-                    else if (should_pipe) {
-                        // TODO(ali): better error checking here
-                        throw std::runtime_error("Incomplete pipeline");
-                    }
-                    else continue;
-                    cmd.clear();
-
-                    /* CASE: set up pipeline from previous command to this one */
-                    if (should_pipe) {
-                        int pipe_fds[2];
-                        pipe(pipe_fds);
-
-                        commands.at(commands.size() - 2).output_fd = pipe_fds[1];
-                        commands.at(commands.size() - 1).input_fd = pipe_fds[0];
-                    }
-
-                    should_pipe = input[i] == '|';
-                    continue;
+                /* add accumulated command to list and reset accumulator;
+                 * empty commands are ignored (unless part of a pipeline) */
+                trim(cmd);
+                if (!cmd.empty()) commands.emplace_back(cmd);
+                else if (should_pipe) {
+                    // TODO(ali): better error checking here
+                    throw std::runtime_error("Incomplete pipeline");
                 }
+                else continue;
+                cmd.clear();
+
+                /* CASE: set up pipeline from previous command to this one */
+                if (should_pipe) {
+                    int pipe_fds[2];
+                    pipe(pipe_fds);
+
+                    commands.at(commands.size() - 2).output_fd = pipe_fds[1];
+                    commands.at(commands.size() - 1).input_fd = pipe_fds[0];
+                }
+
+                should_pipe = input[i] == '|';
+                continue;
         }
 
         /* adding a normal character to the accumulating command */
@@ -301,7 +299,7 @@ void Executor::eval_command(Command &cmd)
  * on the input command. The two special syntax features present in the returned
  * command are single quotes and backslashes, which escape spaces/tabs that 
  * should not be treated as word separators, "<"/">" characters that should not 
- * be treated as I/O redirections, single quotes, and other backslashes.
+ * be treated as I/O redirection operators, single quotes, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
  * 
@@ -379,7 +377,7 @@ string Executor::process_special_syntax(const string &cmd)
 
         /* ACCUMULATING SUBCOMMAND */
         if (command_sub) {
-            if (cmd[i] == '`') command_sub = false;
+            if (cmd[i] == '`' && cmd[i - 1] != '\\') command_sub = false;
             else subcommand += cmd[i];
 
             /* CASE: subcommand accumulation ended in this iteration */
@@ -501,27 +499,20 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
     /* PARSING STATE FLAGS */
     bool backslashed = false;
     bool single_quoted = false;
+    bool double_quoted = false;
+    bool quoted_word = false;
     bool i_redirect = false, o_redirect = false;
 
     /* stores current accumulated word as we scan the command string */
     string word {};
 
     for (int i = 0; i < cmd_str.length(); i++) {
-        /* SINGLE QUOTATION ENVIRONMENT */
-        if (single_quoted) {
-            if (cmd_str[i] == '\'') {
-                if (i_redirect) {
-                    cmd.redirect_input(word);
-                    i_redirect = false;
-
-                }
-                else if (o_redirect) {
-                    cmd.redirect_output(word);
-                    o_redirect = false;
-                }
-                else words.push_back(word);
-                word.clear();
+        /* QUOTATION ENVIRONMENT */
+        if (single_quoted || double_quoted) {
+            if ((single_quoted && cmd_str[i] == '\'') || 
+                (double_quoted && cmd_str[i] == '"')) {
                 single_quoted = false;
+                double_quoted = false;
             }
             else word += cmd_str[i];
             continue;
@@ -534,9 +525,20 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
                 if (backslashed) word += '\\';
                 backslashed = !backslashed;
                 continue;
-            /* WORD SEPARATORS */
             case '\'':
-                if (!backslashed) single_quoted = true;
+            case '"':
+                if (backslashed) {
+                    word += cmd_str[i];
+                    backslashed = false;
+                    continue;
+                }
+                else {
+                    quoted_word = true;
+                    single_quoted = cmd_str[i] == '\'';
+                    double_quoted = cmd_str[i] == '"';
+                }
+                continue;
+            /* WORD SEPARATORS */
             case '<':
             case '>':
             case ' ':
@@ -546,9 +548,11 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
                     backslashed = false;
                     continue;
                 }
-                /* a nonempty word has accumulated upon encountering a word 
-                 * separator; process this word */
-                if (!word.empty()) {
+
+                /* CASE: a nonempty word has accumulated upon encountering a 
+                 * word separator, or an empty word must be counted because it
+                 * appears within quotes; process this word */
+                if (!word.empty() || quoted_word) {
                     if (i_redirect) {
                         cmd.redirect_input(word);
                         i_redirect = false;
@@ -568,6 +572,7 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
                     throw std::runtime_error("missing redirection file name");
                 }
 
+                quoted_word = false;
                 if (cmd_str[i] == '<') i_redirect = true;
                 if (cmd_str[i] == '>') o_redirect = true;
 
