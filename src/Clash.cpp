@@ -20,8 +20,7 @@ Stuff encapsulated:
  * @param file An open file from which to read
  * @param is_terminal 'true' if the file is a terminal, false otherwise. 
  */
-void repl(std::istream& file, bool is_terminal) {
-    Executor executor;
+void repl(std::istream& file, bool is_terminal, Executor& executor) {
     while (true) {
         if (is_terminal) {
             std::cout << "% ";
@@ -48,25 +47,23 @@ void repl(std::istream& file, bool is_terminal) {
 }
 
 void Clash::run(std::vector<std::string> args) {
+    Executor executor(args);
     // case #1: input from stdin
-    if (args.size() == 0) {
+    if (args.size() == 1) {
         bool is_terminal = (isatty(STDIN_FILENO) == 1);
-        repl(std::cin, is_terminal);
+        repl(std::cin, is_terminal, executor);
     }
     // case #2: input from file
-    else if (args.size() == 1) {
-        // open file
+    else if (args.size() == 2) {
         std::ifstream file(args[1]);
         if(file.fail()) {
             std::cerr << "clash: " << strerror(errno) << std::endl;
             return;
         }
-        repl(file, false);
+        repl(file, false, executor);
     }
     // case #3: shell script
-    else if (args.size() == 2 && args[0] == "-c") {
-        // easy, just pass it to the executor.   
-        Executor executor;
+    else if (args.size() == 3 && args[1] == "-c") {
         try {
             executor.run(args[1]);
         }

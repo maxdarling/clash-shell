@@ -5,6 +5,8 @@
 #include <exception>
 #include <iostream> // FOR DEBUGGING
 #include <stdexcept>
+#include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <poll.h>
 #include <filesystem>
@@ -34,10 +36,35 @@ const static string kPATH_default =
 
 
 /**
- * Construct an Executor by scanning 'PATH'
+ * Construct an Executor. Callers may optionally set argv to get special
+ * argument variables like $0, $1, $2, $#, $*, and so on. 
+ * 
+ * @param argv the argv-style args a clash executable would've received, 
+ *             in string/vector form. First arg should be executable name.
  */
- Executor::Executor() {
-     _PATHs = extract_paths_from_PATH();
+ Executor::Executor(const vector<std::string>& argv) {
+    _PATHs = extract_paths_from_PATH();
+
+    // add custom variables
+    _var_bindings["PATH"] = getenv("PATH");
+    if (!argv.empty()) {
+        _var_bindings["0"] = argv[0];
+        int zero_idx = 0;
+        if (argv.size() > 3 && argv[1] == "-c") {
+            _var_bindings["0"] = argv[3];
+            zero_idx = 3;
+        } else if (argv.size() == 2) {
+            _var_bindings["0"] = argv[1];
+            zero_idx = 1;
+        }
+        for (int i = zero_idx + 1; i < argv.size(); ++i) {
+            _var_bindings[std::to_string(i - zero_idx)] = argv[i];
+        }
+        _var_bindings["#"] = std::to_string(argv.size() - zero_idx - 1);
+        string concat;
+        for (const string& elem : argv) concat += elem + " ";
+        _var_bindings["*"] = concat; 
+    }
  }
 
 
@@ -166,11 +193,10 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  */
 void Executor::eval_command(Command &cmd)
 {
-    // todo: implement the real version of this func. 
     cmd.bash_str = process_special_syntax(cmd.bash_str);
     vector<string> words;
     divide_into_words(cmd, words);
-    assert(words.size() > 0);
+    if (words.empty()) return;
 
     // case #1: variable assignment
     if (words.size() == 1 && is_properly_formatted_var(words[0])) {
@@ -287,7 +313,9 @@ void Executor::eval_command(Command &cmd)
         if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
         if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
         // parent: wait for child
-        waitpid(pid, nullptr, 0); // todo: add options. todo: execute pipe cmds concurrently
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) _var_bindings["?"] = WEXITSTATUS(status);
     }
 }
 
@@ -367,6 +395,7 @@ string Executor::process_special_syntax(const string &cmd)
                     throw std::invalid_argument("empty/invalid variable name");
                 }
 
+                // even if the var doesn't exist, this is correct (emtpy str)
                 processed_cmd += _var_bindings[var_name];
 
                 if (!exceeded_name_scope) continue;

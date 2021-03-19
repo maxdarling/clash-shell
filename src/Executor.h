@@ -9,7 +9,7 @@
 
 class Executor {
   public:
-    Executor();
+    Executor(const std::vector<std::string>& argv = {});
     void run(std::string input);
     std::string run_and_capture_output(std::string input);
 

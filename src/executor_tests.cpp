@@ -1,13 +1,13 @@
 #include "ExecutorTestHarness.h"
+#include "loguru/loguru.hpp"
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
     loguru::init(argc, argv);
     loguru::add_file("clash.log", loguru::Truncate, loguru::Verbosity_MAX);
-
+    loguru::g_stderr_verbosity = loguru::Verbosity_OFF; // disable logging
     LOG_F(INFO, "RUNNING EXECUTOR TESTS...");
-    loguru::g_stderr_verbosity = loguru::Verbosity_OFF; // don't write to stderr
 
     ExecutorTestHarness tests;
 
