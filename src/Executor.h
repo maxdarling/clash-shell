@@ -9,7 +9,7 @@
 
 class Executor {
   public:
-    Executor() {}
+    Executor();
     void run(std::string input);
 
   private:
@@ -27,6 +27,7 @@ class Executor {
 
     std::unordered_map<std::string, std::string> _var_bindings;
     std::unordered_map<std::string, std::string> _cached_command_paths;
+    std::unordered_set<std::string> _PATHs;
 
     void divide_into_commands(std::string input, std::vector<Command> &commands);
     void eval_command(Command &cmd);

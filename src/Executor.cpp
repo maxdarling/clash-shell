@@ -34,6 +34,14 @@ const static string kPATH_default =
 
 
 /**
+ * Construct an Executor by scanning 'PATH'
+ */
+ Executor::Executor() {
+     _PATHs = extract_paths_from_PATH();
+ }
+
+
+/**
  * Run a CLASH script.
  * 
  * @param input The CLASH script to be executed.
@@ -237,16 +245,17 @@ void Executor::eval_command(Command &cmd)
         // case 2: implicit path -> search using PATH
         else {
             // check if the command is cached
-            if (_cached_command_paths.count(input_cmd)) { // todo: grow this map
+            if (_cached_command_paths.count(input_cmd)) {
                 complete_cmd = _cached_command_paths[input_cmd];
+                LOG_F(INFO, "cached path found: %s", complete_cmd.c_str());
             }
             // manually check PATH variable
             else {
-                std::unordered_set<std::string> base_paths = extract_paths_from_PATH();
-                for (const std::string& base_path : base_paths) {
+                for (const std::string& base_path : _PATHs) {
                     string attempt_path = base_path + "/" + input_cmd;
                     if (access(attempt_path.c_str(), X_OK) == 0) {
                         complete_cmd = attempt_path;
+                        _cached_command_paths[input_cmd] = complete_cmd;
                         LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
                         break;
                     }
@@ -273,14 +282,11 @@ void Executor::eval_command(Command &cmd)
             }
             argv.back() = nullptr;
 
-            //execve(argv[0], argv.data(), nullptr); // todo: environment vars?
-            execvp(argv[0], argv.data());
+            execve(argv[0], argv.data(), nullptr); // todo: environment vars?
+            //execvp(argv[0], argv.data());
         } 
 
         // parent: close pipes (stdin/out aren't pipes, so don't close em)
-        // todo: this might not work for pipes. if we spwan a child after this, that child will inherit the 
-        // closed fds, perhaps? Safer at least to close them at the end once we've launched + waited for all 
-        // processes. 
         if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
         if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
         // parent: wait for child
