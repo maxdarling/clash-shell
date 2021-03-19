@@ -25,6 +25,7 @@ class Executor {
         std::string bash_str;
         int input_fd;
         int output_fd;
+        bool is_part_of_pipeline = false;
     };
 
     std::unordered_map<std::string, std::string> _var_bindings;
@@ -32,7 +33,7 @@ class Executor {
     std::unordered_set<std::string> _PATHs;
 
     void divide_into_commands(std::string input, std::vector<Command> &commands);
-    void eval_command(Command &cmd);
+    void eval_command(Command &cmd, std::vector<pid_t>& pipeline_pids);
     std::string process_special_syntax(const std::string &cmd);
     void divide_into_words(Command &cmd, std::vector<std::string> &words);
 

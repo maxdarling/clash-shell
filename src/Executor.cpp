@@ -86,7 +86,19 @@ void Executor::run(string input)
     vector<Command> commands;
     divide_into_commands(input, commands);
 
-    for (Command &c : commands) eval_command(c);
+    vector<pid_t> pipeline_pids;
+    for (Command &c : commands) eval_command(c, pipeline_pids);
+
+    // pipelines only: wait for entire pipeline to finish, capture last 
+    // command's status.  
+    for (int i = 0; i < pipeline_pids.size(); ++i) {
+        int status;
+        waitpid(pipeline_pids[i], &status, 0);
+        if (i == pipeline_pids.size() - 1) {
+            _var_bindings["?"] = std::to_string(status);
+        }
+    }
+
 }
 
 /**
@@ -165,9 +177,11 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
 
                     commands.at(commands.size() - 2).output_fd = pipe_fds[1];
                     commands.at(commands.size() - 1).input_fd = pipe_fds[0];
+                    commands.at(commands.size() - 2).is_part_of_pipeline = true;
+                    commands.at(commands.size() - 1).is_part_of_pipeline = true;
                 }
 
-                should_pipe = input[i] == '|';
+                should_pipe = (input[i] == '|');
                 continue;
         }
 
@@ -198,8 +212,10 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
  * Execute a CLASH command.
  * 
  * @param cmd The command to be executed.
+ * @param pipeline_pids Output parameter to be populated with the pid of the
+ *                      executed child process if 'cmd' is part of a pipeline. 
  */
-void Executor::eval_command(Command &cmd)
+void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
 {
     cmd.bash_str = process_special_syntax(cmd.bash_str);
     vector<string> words;
@@ -320,10 +336,16 @@ void Executor::eval_command(Command &cmd)
         // parent: close pipes (stdin/out aren't pipes, so don't close em)
         if (cmd.input_fd != STDIN_FILENO) close(cmd.input_fd);
         if (cmd.output_fd != STDOUT_FILENO) close(cmd.output_fd);
+
         // parent: wait for child
-        int status;
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status)) _var_bindings["?"] = std::to_string(WEXITSTATUS(status));
+        if (cmd.is_part_of_pipeline) {
+            // pipelines run concurrently -> wait for this child later
+            pipeline_pids.push_back(pid);
+        } else {
+            int status;
+            waitpid(pid, &status, 0);
+            if (WIFEXITED(status)) _var_bindings["?"] = std::to_string(WEXITSTATUS(status));
+        }
     }
 }
 

@@ -3,7 +3,7 @@
 #include <vector>
 
 int main(int argc, char *argv[]) {
-    /* logging */
+/* logging */
     // loguru::init(argc, argv);
     // loguru::add_file("clash.log", loguru::Truncate, loguru::Verbosity_MAX);
     loguru::g_stderr_verbosity = loguru::Verbosity_OFF; // disable logging

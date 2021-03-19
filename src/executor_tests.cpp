@@ -69,9 +69,8 @@ int main(int argc, char* argv[])
         "$1: a; b; c|d\n"
     );
 
-    /* CUSTOM TESTS */
 
-    // tests.add_test("x=abc; $x", "abc"); // try no newline...
+    /* CUSTOM TESTS */
 
     // command sub:
     //tests.add_test("echo `echo dog`", "dog");
@@ -79,6 +78,9 @@ int main(int argc, char* argv[])
     //tests.add_test("echo `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
     // tests.add_test("words.py", ""); // breaks: blocking on a read when there's no ouput
     // tests.add_test("echo pizza > trash_file; cat trash_file", "pizza\n");
+    // concurrent piping: this should take 1s, not 10
+    //tests.add_test("sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1 | 
+    //                sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1", "");
 
     tests.run_all_tests();
 }
