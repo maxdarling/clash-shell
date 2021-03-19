@@ -4,10 +4,10 @@
 
 int main(int argc, char* argv[])
 {
-    loguru::init(argc, argv);
-    loguru::add_file("clash.log", loguru::Truncate, loguru::Verbosity_MAX);
+    /* logging */
+    // loguru::init(argc, argv);
+    // loguru::add_file("clash.log", loguru::Truncate, loguru::Verbosity_MAX);
     loguru::g_stderr_verbosity = loguru::Verbosity_OFF; // disable logging
-    LOG_F(INFO, "RUNNING EXECUTOR TESTS...");
 
     ExecutorTestHarness tests;
 
@@ -18,7 +18,6 @@ int main(int argc, char* argv[])
     tests.add_test(
         "x=foo; echo file1 > zfoo.txt\ncat < z$x.txt\n", 
         "file1\n");
-    // todo: fix variable assignment w/ quotes before these tests 
     // problem: words.py does not render newlines
     // tests.add_test(
     //     "y='a\\nb'; words.py \\\"$y\\\"\n", 
@@ -70,16 +69,9 @@ int main(int argc, char* argv[])
         "$1: a; b; c|d\n"
     );
 
-
     /* CUSTOM TESTS */
 
     // tests.add_test("x=abc; $x", "abc"); // try no newline...
-    
-    // // 2 ls in a row
-    // tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
-    // tests.add_test("ls", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");  
-    // // empty words.py
-    // tests.add_test("words.py", "");
 
     // command sub:
     //tests.add_test("echo `echo dog`", "dog");

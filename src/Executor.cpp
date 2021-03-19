@@ -68,6 +68,14 @@ const static string kPATH_default =
  }
 
 
+/** 
+ * Destructor for an executor instance. Exits with the exit status of the
+ * most recently executed command. 
+ */
+ Executor::~Executor() {
+     exit(std::stoi(_var_bindings["?"]));
+ }
+
 /**
  * Run a CLASH script.
  * 
@@ -315,7 +323,7 @@ void Executor::eval_command(Command &cmd)
         // parent: wait for child
         int status;
         waitpid(pid, &status, 0);
-        if (WIFEXITED(status)) _var_bindings["?"] = WEXITSTATUS(status);
+        if (WIFEXITED(status)) _var_bindings["?"] = std::to_string(WEXITSTATUS(status));
     }
 }
 
