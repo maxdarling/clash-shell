@@ -37,4 +37,18 @@ class Executor {
     std::string process_special_syntax(const std::string &cmd);
     void divide_into_words(Command &cmd, std::vector<std::string> &words);
 
+
+  public: 
+    // custom exception class
+    class ExecutorException: public std::exception {
+        private:
+            std::string _msg;
+        public:
+            ExecutorException(const std::string& msg) : _msg(msg){}
+
+            virtual const char* what() const noexcept override
+            {
+                return _msg.c_str();
+            } 
+        };
 };

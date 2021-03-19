@@ -32,8 +32,12 @@ void repl(std::istream& file, bool is_terminal, Executor& executor) {
         try {
             executor.run(line);
         }
+        catch (Executor::ExecutorException& e) {
+            std::cerr << "clash: " << e.what() << std::endl;
+        }
         catch (std::exception& e) {
             std::cerr << "clash: " << e.what() << std::endl;
+            LOG_F(INFO, "uncaught exception: %s", e.what());
         }
     }
 
@@ -67,8 +71,12 @@ void Clash::run(std::vector<std::string> args) {
         try {
             executor.run(args[1]);
         }
+        catch (Executor::ExecutorException& e) {
+            std::cerr << "clash: " << e.what() << std::endl;
+        }
         catch (std::exception& e) {
             std::cerr << "clash: " << e.what() << std::endl;
+            LOG_F(INFO, "uncaught exception: %s", e.what());
         }
     }
     else {

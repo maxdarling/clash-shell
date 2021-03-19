@@ -71,16 +71,24 @@ int main(int argc, char* argv[])
 
 
     /* CUSTOM TESTS */
+    // blank input
+    tests.add_test("", "");
+    tests.add_test("words.py", "");
 
-    // command sub:
-    //tests.add_test("echo `echo dog`", "dog");
-    //tests.add_test("words.py `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
-    //tests.add_test("echo `ls`", "CMakeLists.txt  README.md       build           clash.log       clash_main.cpp  pp.cpp          src             test_commands   words.py");
-    // tests.add_test("words.py", ""); // breaks: blocking on a read when there's no ouput
-    // tests.add_test("echo pizza > trash_file; cat trash_file", "pizza\n");
-    // concurrent piping: this should take 1s, not 10
-    //tests.add_test("sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1 | 
-    //                sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1", "");
+    // file redirection
+    tests.add_test("echo pizza > trash_file; cat trash_file", "pizza\n");
+    tests.add_test("cat < trash_file", "pizza\n");
+    tests.add_test("cat < fakefile", "No such file or directory");
+
+    // concurrent piping
+    tests.add_test("echo 'this should take 1s, not 10s'; sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1 | "
+                   "sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1", "this should take 1s, not 10s\n");
+
+    // built-ins error handling
+    tests.add_test("cd fakedirectory", "cd: fakedirectory: No such file or directory");
+    tests.add_test("exit fakestatus", "exit: fakestatus: numeric argument required");
+    tests.add_test("export fakevar", "");
+    tests.add_test("unset fakevar", "");
 
     tests.run_all_tests();
 }

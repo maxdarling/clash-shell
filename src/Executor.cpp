@@ -164,8 +164,7 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
                 trim(cmd);
                 if (!cmd.empty()) commands.emplace_back(cmd);
                 else if (should_pipe) {
-                    // TODO(ali): better error checking here
-                    throw std::runtime_error("Incomplete pipeline");
+                    throw ExecutorException("Incomplete pipeline");
                 }
                 else continue;
                 cmd.clear();
@@ -190,21 +189,20 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
         cmd += input[i];
     }
 
-    // TODO(ali): better error checking here
     if (single_quoted) {
-        throw std::runtime_error("Unterminated single quotes");
+        throw ExecutorException("Unterminated single quotes");
     }
     if (double_quoted) {
-        throw std::runtime_error("Unterminated double quotes");
+        throw ExecutorException("Unterminated double quotes");
     }
     if (command_sub) {
-        throw std::runtime_error("Unterminated command substitution");
+        throw ExecutorException("Unterminated command substitution");
     }
     if (backslashed) {
-        throw std::runtime_error("Backslash appears as last character of line");
+        throw ExecutorException("Backslash appears as last character of line");
     }
     if (var_name) {
-        throw std::runtime_error("Unterminated braces for variable name");
+        throw ExecutorException("Unterminated braces for variable name");
     }
 }
 
@@ -232,16 +230,13 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
     } 
     // case #2: builtin commands
     else if (words[0] == "cd") {
-        if (words.size() == 1) {
-            throw std::runtime_error("syntax error: no path argument to 'cd'");
-        }
         try {
-            fs::current_path(words[1]);
+            fs::current_path((words[1]));
         }
-        catch (fs::filesystem_error& fse) {
-            LOG_F(INFO, "%s", fse.what());
+        catch (...) {
+            string msg = "cd: " + words[1] + ": " + strerror(errno);
+            throw ExecutorException(msg); 
         }
-        LOG_F(INFO, "switched directory to: %s", string(fs::current_path()).c_str());
     }
     else if (words[0] == "exit") {
         int status_code = 0;
@@ -249,8 +244,9 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
             try {
                 status_code = std::stoi(words[1]); 
             }
-            catch (std::exception& e){
-                LOG_F(INFO, "%s", e.what());
+            catch (...){
+                string msg = "exit: " + words[1] + ": numeric argument required";
+                throw ExecutorException(msg); 
             }
         }
         exit(status_code);
@@ -261,7 +257,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
             if (_var_bindings.count(words[i])) {
                 int status = setenv(words[i].c_str(), _var_bindings[words[i]].c_str(), 1);
                 if (status == -1) {
-                    LOG_F(INFO, "%s", strerror(errno));
+                    // bash behavior: do nothing for invalid variable
+                    LOG_F(INFO, "export: invalid var: %s", words[i].c_str()); 
                 }
             }
         }
@@ -272,7 +269,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
             if (_var_bindings.count(words[i])) {
                 int status = unsetenv(words[i].c_str());
                 if (status == -1) {
-                    LOG_F(INFO, "%s", strerror(errno));
+                    // bash behavior: do nothing for invalid variable
+                    LOG_F(INFO, "unset: invalid var: %s", words[i].c_str());
                 }
                 _var_bindings.erase(words[i]);
             }
@@ -285,38 +283,33 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
         // case 1: path is specified explicitly
         if (input_cmd[0] == '/') {
             if (access(input_cmd.c_str(), X_OK) != 0) {
-                LOG_F(INFO, "%s", strerror(errno));
-                throw std::runtime_error("invalid executable path");
+                throw ExecutorException(strerror(errno));
             }
             complete_cmd = input_cmd;
         }
-        // case 2: implicit path -> search using PATH
+        // case 2: check if the command is cached
+        else if (_cached_command_paths.count(input_cmd)) {
+            complete_cmd = _cached_command_paths[input_cmd];
+            LOG_F(INFO, "cached path found: %s", complete_cmd.c_str());
+        }
+        // case 3: manually search PATH  
         else {
-            // check if the command is cached
-            if (_cached_command_paths.count(input_cmd)) {
-                complete_cmd = _cached_command_paths[input_cmd];
-                LOG_F(INFO, "cached path found: %s", complete_cmd.c_str());
-            }
-            // manually check PATH variable
-            else {
-                for (const std::string& base_path : _PATHs) {
-                    string attempt_path = base_path + "/" + input_cmd;
-                    if (access(attempt_path.c_str(), X_OK) == 0) {
-                        complete_cmd = attempt_path;
-                        _cached_command_paths[input_cmd] = complete_cmd;
-                        LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
-                        break;
-                    }
-                }
-                // if we got here, we couldn't find a path to the executable. 
-                if (complete_cmd == "") {
-                    throw std::runtime_error("command not found: " + input_cmd);
+            for (const std::string& base_path : _PATHs) {
+                string attempt_path = base_path + "/" + input_cmd;
+                if (access(attempt_path.c_str(), X_OK) == 0) {
+                    complete_cmd = attempt_path;
+                    _cached_command_paths[input_cmd] = complete_cmd;
+                    LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
+                    break;
                 }
             }
         }
+        // if we got here, we couldn't find a path to the executable. 
+        if (complete_cmd == "") {
+            throw ExecutorException("command not found: " + input_cmd);
+        }
 
         /* execute command */
-
         pid_t pid = fork();
         if (pid == 0) {
             // setup i/o
@@ -421,8 +414,7 @@ string Executor::process_special_syntax(const string &cmd)
             /* CASE: variable name accumulation ends in this iteration */
             if (!var_sub || i == cmd.length() - 1) {
                 if (var_name.empty()) {
-                    // TODO(ali): better error checking
-                    throw std::invalid_argument("empty/invalid variable name");
+                    throw ExecutorException("empty/invalid variable name");
                 }
 
                 // even if the var doesn't exist, this is correct (emtpy str)
@@ -515,21 +507,20 @@ string Executor::process_special_syntax(const string &cmd)
         }
     }
 
-    // TODO(ali): better error checking
     if (name_in_braces) {
-        throw std::invalid_argument("unterminated braces for variable name");
+        throw ExecutorException("unterminated braces for variable name");
     }
     if (single_quoted) {
-        throw std::runtime_error("unterminated single quotes");
+        throw ExecutorException("unterminated single quotes");
     }
     if (double_quoted) {
-        throw std::runtime_error("unterminated double quotes");
+        throw ExecutorException("unterminated double quotes");
     }
     if (command_sub) {
-        throw std::runtime_error("unterminated command substitution");
+        throw ExecutorException("unterminated command substitution");
     }
     if (backslashed) {
-        throw std::runtime_error("backslash appears as last character of line");
+        throw ExecutorException("backslash appears as last character of line");
     }
 
     return processed_cmd;
@@ -627,8 +618,7 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
                 /* CASE: two I/O redirection operators appear in a row */
                 else if ((i_redirect || o_redirect) && 
                          (cmd_str[i] == '<' || cmd_str[i] == '>')) {
-                    // TODO(ali): better error checking
-                    throw std::runtime_error("missing redirection file name");
+                    throw ExecutorException("missing redirection file name");
                 }
 
                 quoted_word = false;
@@ -643,16 +633,14 @@ void Executor::divide_into_words(Command &cmd, vector<string> &words)
         }
     }
 
-    // TODO(ali): better error checking
     if (i_redirect) {
-        throw std::runtime_error("missing input file name");
+        throw ExecutorException("missing input file name");
     }
     if (o_redirect) {
-        throw std::runtime_error("missing output file name");
+        throw ExecutorException("missing output file name");
     }
 }
 
-// TODO(ali): actually open files 'fname' in these methods
 
 /**
  * Open a file and redirect the input of the command to its file descriptor.
@@ -665,7 +653,7 @@ void Executor::Command::redirect_input(const std::string &fname)
 {
     int fd = open(fname.c_str(), O_RDONLY, 0644);
     if (fd == -1) {
-        throw std::runtime_error(strerror(errno));
+        throw ExecutorException(strerror(errno));
     }
     input_fd = fd;
 }
@@ -680,7 +668,7 @@ void Executor::Command::redirect_output(const std::string &fname)
 {
     int fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644); 
     if (fd == -1) {
-        throw std::runtime_error(strerror(errno));
+        throw ExecutorException(strerror(errno));
     }
     output_fd = fd;
 }
@@ -750,12 +738,15 @@ std::string Executor::run_and_capture_output(std::string input) {
  } 
 
 
-// todo: put in util file?
+/** 
+ * Utility function. Parses and returns each path in PATH. 
+ *
+ * Note: the current directory '.' is always included, even in not in PATH.
+ */ 
  std::unordered_set<std::string> extract_paths_from_PATH() {
     char *path_ptr = getenv("PATH");
     string PATH = path_ptr ? string(path_ptr) : kPATH_default;
     LOG_F(INFO, "existing PATH variable was %s", (path_ptr ? "found" : "not found"));
-    //LOG_F(INFO, "PATH: %s", PATH.c_str());
     int start_idx = 0;
 
     std::unordered_set<std::string> result;
@@ -766,7 +757,6 @@ std::string Executor::run_and_capture_output(std::string input) {
         start_idx = delim_idx + 1;
     }
 
-    // special: add '.' to the PATH as well
     result.insert(".");
 
     return result;
