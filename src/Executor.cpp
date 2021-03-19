@@ -282,8 +282,7 @@ void Executor::eval_command(Command &cmd)
             }
             argv.back() = nullptr;
 
-            execve(argv[0], argv.data(), nullptr); // todo: environment vars?
-            //execvp(argv[0], argv.data());
+            execv(argv[0], argv.data());
         } 
 
         // parent: close pipes (stdin/out aren't pipes, so don't close em)
@@ -370,10 +369,7 @@ string Executor::process_special_syntax(const string &cmd)
                     throw std::invalid_argument("empty/invalid variable name");
                 }
 
-                // TODO(ali): always append _var_bindings[var_name] to processed_cmd
                 processed_cmd += _var_bindings[var_name];
-                // std::replace(var_name.begin(), var_name.end(), ' ', '-');
-                // processed_cmd += "[binding-of-\"" + var_name + "\"]";
 
                 if (!exceeded_name_scope) continue;
             }
@@ -626,6 +622,10 @@ void Executor::Command::redirect_output(const std::string &fname)
 }
 
 
+/** 
+ * Mimics exactly the behavior of the 'run' method, but captures its standard output 
+ * and returns it as a string. 
+ */
 std::string Executor::run_and_capture_output(std::string input) {
     // 1: temporarily redirect stdout to a pipe
     int stdout_copy = dup(STDOUT_FILENO);

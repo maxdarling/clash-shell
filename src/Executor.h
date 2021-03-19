@@ -11,6 +11,7 @@ class Executor {
   public:
     Executor();
     void run(std::string input);
+    std::string run_and_capture_output(std::string input);
 
   private:
     struct Command {
@@ -34,8 +35,4 @@ class Executor {
     std::string process_special_syntax(const std::string &cmd);
     void divide_into_words(Command &cmd, std::vector<std::string> &words);
 
-    // convenience:
-    std::string run_and_capture_output(std::string input);
-
-    friend class ExecutorTestHarness;
 };
