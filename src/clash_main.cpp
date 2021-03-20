@@ -1,5 +1,5 @@
-#include "src/Clash.h"
-#include "src/loguru/loguru.hpp"
+#include "Clash.h"
+#include "loguru/loguru.hpp"
 #include <vector>
 
 int main(int argc, char *argv[]) {

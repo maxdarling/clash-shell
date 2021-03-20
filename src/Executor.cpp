@@ -1,23 +1,19 @@
 #include "Executor.h"
-#include "string_util.cpp"
+#include "util/string_utils.cpp"
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
-#include <iostream> // FOR DEBUGGING
 #include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <poll.h>
 #include <filesystem>
-// #include <sys/types.h>
-// #include <sys/stat.h>
 #include <fcntl.h>
 
 namespace fs = std::filesystem;
 using std::string;
 using std::vector;
-using std::cout, std::cerr, std::endl;
 
 bool is_properly_formatted_var(const string& input);
 std::unordered_set<std::string> extract_paths_from_PATH();
@@ -25,22 +21,19 @@ std::unordered_set<std::string> extract_paths_from_PATH();
 const static string kPATH_default = 
     "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin";
 
-
 /** 
- * Notes: 
+ * Development notes: 
+ * - 'pipe2' isn't available on macOS, to our suprise. 
  * 
- * - for whatever reason, 'pipe2' is not recognized on my (Max's) machine. 
- *   I really want to use this for 'O_CLOEXEC', but can't. For now, I'll just
- *   pollute the fd space, or whatever the consequence is ( .)_( .)  
- */
+ */ 
 
 
 /**
  * Construct an Executor. Callers may optionally set argv to get special
  * argument variables like $0, $1, $2, $#, $*, and so on. 
  * 
- * @param argv the argv-style args a clash executable would've received, 
- *             in string/vector form. First arg should be executable name.
+ * @param argv the argv-style args a clash executable would've received, but 
+ *             in string/vector form. First arg should be the executable name. 
  */
  Executor::Executor(const vector<std::string>& argv) {
     _PATHs = extract_paths_from_PATH();
@@ -76,12 +69,13 @@ const static string kPATH_default =
      exit(std::stoi(_var_bindings["?"]));
  }
 
+
 /**
- * Run a CLASH script.
+ * Execute a CLASH script, writing to standard output. 
  * 
  * @param input The CLASH script to be executed.
  */
-void Executor::run(string input)
+void Executor::execute_command(string input)
 {
     vector<Command> commands;
     divide_into_commands(input, commands);
@@ -89,8 +83,8 @@ void Executor::run(string input)
     vector<pid_t> pipeline_pids;
     for (Command &c : commands) eval_command(c, pipeline_pids);
 
-    // pipelines only: wait for entire pipeline to finish, capture last 
-    // command's status.  
+    /* pipelines only: wait for entire pipeline to finish, and capture last
+       command's status. */
     for (int i = 0; i < pipeline_pids.size(); ++i) {
         int status;
         waitpid(pipeline_pids[i], &status, 0);
@@ -98,7 +92,49 @@ void Executor::run(string input)
             _var_bindings["?"] = std::to_string(status);
         }
     }
+}
 
+
+/** 
+ * Mirrors the 'execute_command' method exactly, but returns its standard 
+ * output as a string.  
+ * 
+ * @param input the CLASH script to be executed. 
+ */
+std::string Executor::execute_command_and_capture_output(std::string input) {
+    // 1: temporarily redirect stdout to a pipe
+    int stdout_copy = dup(STDOUT_FILENO);
+    int fds[2];
+    pipe(fds);
+    dup2(fds[1], STDOUT_FILENO);
+    close(fds[1]);
+
+    // 2: execute the command 
+    try {
+        Executor::execute_command(input);
+    }
+    catch (...) {
+        // restore stdout - must complete "teardown" after "setup" here too!
+        dup2(stdout_copy, STDOUT_FILENO);
+        close(stdout_copy);
+        throw;
+    }
+
+    // 3: read captured output
+    string result;
+    struct pollfd pfd {fds[0], POLL_IN, 0};
+    // only attempt to read if there's data (hangs otherwise)
+    if (poll(&pfd, 1, 0) > 0) {
+        char buf[512];
+        int bytes_read = read(fds[0], buf, sizeof(buf));
+        result = string(buf, bytes_read);
+    }
+
+    // 4: restore stdout
+    dup2(stdout_copy, STDOUT_FILENO);
+    close(stdout_copy);
+
+    return result;
 }
 
 /**
@@ -161,7 +197,7 @@ void Executor::divide_into_commands(string input, vector<Command> &commands)
                     command_sub || var_name) break;
                 /* add accumulated command to list and reset accumulator;
                  * empty commands are ignored (unless part of a pipeline) */
-                trim(cmd);
+                string_utils::trim(cmd);
                 if (!cmd.empty()) commands.emplace_back(cmd);
                 else if (should_pipe) {
                     throw ExecutorException("Incomplete pipeline");
@@ -226,7 +262,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
         string var = words[0].substr(0, eq_idx);
         string val = words[0].substr(eq_idx + 1); 
         _var_bindings[var] = val; 
-        LOG_F(INFO, "performed variable binding for %s : %s", var.c_str(), val.c_str());
+        LOG_F(INFO, "performed variable binding for %s : %s", 
+              var.c_str(), val.c_str());
     } 
     // case #2: builtin commands
     else if (words[0] == "cd") {
@@ -245,7 +282,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
                 status_code = std::stoi(words[1]); 
             }
             catch (...){
-                string msg = "exit: " + words[1] + ": numeric argument required";
+                string msg = 
+                    "exit: " + words[1] + ": numeric argument required";
                 throw ExecutorException(msg); 
             }
         }
@@ -255,7 +293,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
         // export each existing var as an environment variable
         for (int i = 1; i < words.size(); ++i) {
             if (_var_bindings.count(words[i])) {
-                int status = setenv(words[i].c_str(), _var_bindings[words[i]].c_str(), 1);
+                int status = setenv(words[i].c_str(), 
+                                    _var_bindings[words[i]].c_str(), 1);
                 if (status == -1) {
                     // bash behavior: do nothing for invalid variable
                     LOG_F(INFO, "export: invalid var: %s", words[i].c_str()); 
@@ -299,7 +338,8 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
                 if (access(attempt_path.c_str(), X_OK) == 0) {
                     complete_cmd = attempt_path;
                     _cached_command_paths[input_cmd] = complete_cmd;
-                    LOG_F(INFO, "full executable path found: %s", complete_cmd.c_str());
+                    LOG_F(INFO, "full executable path found: %s", 
+                          complete_cmd.c_str());
                     break;
                 }
             }
@@ -337,7 +377,9 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
         } else {
             int status;
             waitpid(pid, &status, 0);
-            if (WIFEXITED(status)) _var_bindings["?"] = std::to_string(WEXITSTATUS(status));
+            if (WIFEXITED(status)) {
+                _var_bindings["?"] = std::to_string(WEXITSTATUS(status));
+            }
         }
     }
 }
@@ -346,11 +388,12 @@ void Executor::eval_command(Command &cmd, vector<pid_t>& pipeline_pids)
  * Process backslashes, single quotes, double quotes, variable substitutions, 
  * and command substitutions for a given CLASH command string.
  * 
- * The returned command is the result of processing these special syntax features
- * on the input command. The two special syntax features present in the returned
- * command are single quotes and backslashes, which escape spaces/tabs that 
- * should not be treated as word separators, "<"/">" characters that should not 
- * be treated as I/O redirection operators, single quotes, and other backslashes.
+ * The returned command is the result of processing these special syntax
+ * features on the input command. The two special syntax features present in
+ * the returned command are single quotes and backslashes, which escape
+ * spaces/tabs that should not be treated as word separators, "<"/">"
+ * characters that should not be treated as I/O redirection operators, single
+ * quotes, and other backslashes.
  * 
  * @param cmd The raw CLASH command string to be processed.
  * 
@@ -434,7 +477,7 @@ string Executor::process_special_syntax(const string &cmd)
             /* CASE: subcommand accumulation ended in this iteration */
             if (!command_sub) {
                 // run the subcommand and insert its output 
-                string result = run_and_capture_output(subcommand);
+                string result = execute_command_and_capture_output(subcommand);
                 // remove trailing newline
                 if (result.back() == '\n') result.pop_back();
                 // word break on newlines and tabs
@@ -663,6 +706,8 @@ void Executor::Command::redirect_input(const std::string &fname)
  * 
  * @param fname Name of file to be opened. If it exists, the command output will
  * be appended to the file. If it does not exist, the file will be created.
+ * 
+ * @throws error If file is unable to be opened or created. 
  */
 void Executor::Command::redirect_output(const std::string &fname)
 {
@@ -674,51 +719,11 @@ void Executor::Command::redirect_output(const std::string &fname)
 }
 
 
-/** 
- * Mimics exactly the behavior of the 'run' method, but captures its standard output 
- * and returns it as a string. 
- */
-std::string Executor::run_and_capture_output(std::string input) {
-    // 1: temporarily redirect stdout to a pipe
-    int stdout_copy = dup(STDOUT_FILENO);
-    int fds[2];
-    pipe(fds);
-    dup2(fds[1], STDOUT_FILENO);
-    close(fds[1]);
 
-    // 2: execute the command 
-    try {
-        Executor::run(input);
-    }
-    catch (...) {
-        // restore stdout
-        dup2(stdout_copy, STDOUT_FILENO);
-        close(stdout_copy);
-        // we should throw the thrown exception here b/c this function should 
-        // exactly mimic 'run', only differing in fd setup + teardown. 
-        throw;
-    }
-
-    // 3: read captured output and append it 
-    string result;
-    struct pollfd pfd {fds[0], POLL_IN, 0};
-    // only attempt to read if there's data
-    if (poll(&pfd, 1, 0) > 0) {
-        char buf[512];
-        int bytes_read = read(fds[0], buf, sizeof(buf));
-        result = string(buf, bytes_read);
-    }
-
-    // 4: restore stdout
-    dup2(stdout_copy, STDOUT_FILENO);
-    close(stdout_copy);
-
-    return result;
-}
 
 
 /**
- * Checks if the input string conforms to valid variable formatting. 
+ * Checks if the input string conforms to valid clash variable formatting. 
  * Rules:
  *  1. initial character is a letter followed by any number of letters or digits
  *  2. followed by a '='
@@ -734,19 +739,20 @@ std::string Executor::run_and_capture_output(std::string input) {
 
     auto last = input.begin() + eq_idx;
     return last == find_if_not(input.begin() + 1, last, 
-                               [] (unsigned char c) { return std::isalnum(c); });
+                               [](unsigned char c){ return std::isalnum(c); });
  } 
 
 
 /** 
  * Utility function. Parses and returns each path in PATH. 
  *
- * Note: the current directory '.' is always included, even in not in PATH.
+ * Note: the current directory '.' is always additionally included.
  */ 
  std::unordered_set<std::string> extract_paths_from_PATH() {
     char *path_ptr = getenv("PATH");
     string PATH = path_ptr ? string(path_ptr) : kPATH_default;
-    LOG_F(INFO, "existing PATH variable was %s", (path_ptr ? "found" : "not found"));
+    LOG_F(INFO, "existing PATH variable was %s", 
+          (path_ptr ? "found" : "not found"));
     int start_idx = 0;
 
     std::unordered_set<std::string> result;

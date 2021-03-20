@@ -1,4 +1,4 @@
-#include "Executor.h"
+#include "../Executor.h"
 #include <iostream>
 
 class ExecutorTestHarness {
@@ -11,7 +11,8 @@ class ExecutorTestHarness {
         for (auto &[input, correct_output]: _test_cases) {
             std::string actual_output;
             try {
-                actual_output = executor.run_and_capture_output(input);
+                actual_output = 
+                    executor.execute_command_and_capture_output(input);
             }
             catch (std::exception& e) {
                 actual_output = e.what();
@@ -29,8 +30,8 @@ class ExecutorTestHarness {
                 ++n_correct;
             }
         }
-        std::cout << std::endl << std::endl << "TOTAL: " << n_correct << " / " << 
-        _test_cases.size() << " tests passed." << std::endl;
+        std::cout << std::endl << std::endl << "TOTAL: " << n_correct << " / " 
+        << _test_cases.size() << " tests passed." << std::endl;
     }
   
   private:

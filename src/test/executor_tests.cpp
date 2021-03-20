@@ -1,5 +1,5 @@
 #include "ExecutorTestHarness.h"
-#include "loguru/loguru.hpp"
+#include "../loguru/loguru.hpp"
 #include <iostream>
 
 int main(int argc, char* argv[])
@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
         "abc\n"
     );
     // problem: Why is the final '<' considered escaped? we don't know
-    // tests.add_test( // failing: we interpret the carats as io redirects when we shouldn't
+    // tests.add_test( 
     //     "words.py \"<\"'>'\\< `echo \\<`",
     //     "$1: <><\n$2: <\n"
     // );
@@ -81,12 +81,16 @@ int main(int argc, char* argv[])
     tests.add_test("cat < fakefile", "No such file or directory");
 
     // concurrent piping
-    tests.add_test("echo 'this should take 1s, not 10s'; sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1 | "
-                   "sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1", "this should take 1s, not 10s\n");
+    tests.add_test("echo 'this should take 1s, not 10s';"
+                   "sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1 | "
+                   "sleep 1 | sleep 1 | sleep 1 | sleep 1 | sleep 1", 
+                   "this should take 1s, not 10s\n");
 
     // built-ins error handling
-    tests.add_test("cd fakedirectory", "cd: fakedirectory: No such file or directory");
-    tests.add_test("exit fakestatus", "exit: fakestatus: numeric argument required");
+    tests.add_test("cd fakedirectory", 
+                   "cd: fakedirectory: No such file or directory");
+    tests.add_test("exit fakestatus", 
+                   "exit: fakestatus: numeric argument required");
     tests.add_test("export fakevar", "");
     tests.add_test("unset fakevar", "");
 

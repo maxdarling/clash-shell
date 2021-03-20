@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(SRCS
     src/loguru/loguru.cpp
-    src/string_util.cpp
+    src/util/string_utils.cpp
     src/Executor.cpp
     src/Clash.cpp)
 
@@ -17,9 +17,9 @@ set(HDRS
     src/loguru/loguru.hpp
     src/Executor.h
     src/Clash.h
-    src/ExecutorTestHarness.h)
+    src/test/ExecutorTestHarness.h)
 
-add_executable(executor_tests src/executor_tests.cpp 
+add_executable(executor_tests src/test/executor_tests.cpp 
     ${SRCS} ${HDRS})
 
-add_executable(clash clash_main.cpp ${SRCS} ${HDRS})
+add_executable(clash src/clash_main.cpp ${SRCS} ${HDRS})

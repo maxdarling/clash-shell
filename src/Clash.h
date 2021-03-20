@@ -5,7 +5,7 @@
  * This class implements a simple shell called "clash", modeled after bash. 
  * 
  * A single 'run' method is provided, which invokes a clash instance on the 
- * given argument array and writes output to standard out.   
+ * given argument array, set to write to standard out.   
  * 
  *
  * Usage: 

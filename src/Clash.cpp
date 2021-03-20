@@ -6,14 +6,6 @@
 #include "Executor.h"
 
 /*
-Stuff encapsulated: 
--reading CL args
--the repl ('%' prompt)
--3 different operation modes (file, script, default)
--exception handling
-*/
-
-/*
  * Continually reads lines and evaluates them as commands until a stop 
  * condition is reached. 
  * 
@@ -30,7 +22,7 @@ void repl(std::istream& file, bool is_terminal, Executor& executor) {
             break;;
         }
         try {
-            executor.run(line);
+            executor.execute_command(line);
         }
         catch (Executor::ExecutorException& e) {
             std::cerr << "clash: " << e.what() << std::endl;
@@ -69,7 +61,7 @@ void Clash::run(std::vector<std::string> args) {
     // case #3: shell script
     else if (args.size() == 3 && args[1] == "-c") {
         try {
-            executor.run(args[1]);
+            executor.execute_command(args[1]);
         }
         catch (Executor::ExecutorException& e) {
             std::cerr << "clash: " << e.what() << std::endl;
