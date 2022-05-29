@@ -1,0 +1,5 @@
+# ignore build artifacts
+build
+.DS_Store
+.vscode
+clash.log
